@@ -1,6 +1,6 @@
 'use client';
 import { motion } from 'framer-motion';
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import Globe from 'react-globe.gl';
 
 const CITY_MARKERS = [
@@ -14,7 +14,7 @@ const CITY_MARKERS = [
 
 type MarkerType = { lat: number; lng: number; label: string; color: string; type?: string };
 
-function GlobeInner() {
+function GlobeInner({ width, height }: { width: number; height: number }) {
   const [selected, setSelected] = useState<MarkerType | null>(null);
   const [issPos, setIssPos] = useState({ lat: 25, lng: 78 });
 
@@ -36,8 +36,11 @@ function GlobeInner() {
     { lat: issPos.lat, lng: issPos.lng, label: 'ISS 🛸', color: '#38D1F0', type: 'iss' },
   ];
 
+  // Don't render until we have real dimensions
+  if (width < 10 || height < 10) return null;
+
   return (
-    <div style={{ position: 'relative', borderRadius: '1rem', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', borderRadius: '1rem', overflow: 'hidden', width, height }}>
       <Globe
         globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
         bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
@@ -52,8 +55,8 @@ function GlobeInner() {
         pointRadius={(d: object) => (d as MarkerType).type === 'iss' ? 0.9 : 0.55}
         pointLabel="label"
         onPointClick={(point: object) => setSelected(point as MarkerType)}
-        width={typeof window !== 'undefined' ? Math.min(window.innerWidth * 0.48, 640) : 560}
-        height={480}
+        width={width}
+        height={height}
         enablePointerInteraction
       />
 
@@ -130,6 +133,73 @@ const FEATURES_LIST = [
   '🌍 Real-time day/night cycle',
 ];
 
+// Measures the column container and passes real pixel dimensions to the Globe
+function GlobeWithMeasure() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const measure = () => {
+      const rect = containerRef.current!.getBoundingClientRect();
+      if (rect.width > 0) {
+        const w = Math.floor(rect.width);
+        const h = Math.min(Math.floor(w * 0.75), 520); // 4:3 aspect, max 520px tall
+        setDims({ width: w, height: h });
+      }
+    };
+
+    measure();
+
+    const ro = new ResizeObserver(measure);
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ width: '100%', minHeight: 360, position: 'relative' }}
+    >
+      {dims.width > 0 ? (
+        <Suspense fallback={
+          <div style={{
+            width: dims.width,
+            height: dims.height,
+            borderRadius: '1rem',
+            background: 'rgba(124,58,237,0.06)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem' }}>Loading globe...</p>
+          </div>
+        }>
+          <GlobeInner width={dims.width} height={dims.height} />
+        </Suspense>
+      ) : (
+        <div style={{
+          width: '100%',
+          height: 400,
+          borderRadius: '1rem',
+          background: 'rgba(124,58,237,0.06)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ width: 32, height: 32, border: '2px solid rgba(124,58,237,0.3)', borderTopColor: '#7C3AED', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 0.75rem' }} />
+            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem' }}>Syncing coordinates...</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GlobeSection() {
   return (
     <section className="globe-section" id="globe">
@@ -138,7 +208,7 @@ export default function GlobeSection() {
 
       <div className="section-container">
         <div className="globe-grid">
-          {/* Text */}
+          {/* Text column */}
           <motion.div
             className="globe-text-col"
             initial={{ opacity: 0, x: -40 }}
@@ -170,15 +240,16 @@ export default function GlobeSection() {
             </button>
           </motion.div>
 
-          {/* Globe */}
+          {/* Globe column — measured then rendered */}
           <motion.div
             className="globe-canvas-col"
             initial={{ opacity: 0, x: 40 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            style={{ width: '100%' }}
           >
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', width: '100%' }}>
               {/* Glow ring behind globe */}
               <div style={{
                 position: 'absolute',
@@ -188,17 +259,18 @@ export default function GlobeSection() {
                 filter: 'blur(24px)',
                 pointerEvents: 'none',
               }} />
-              <Suspense fallback={
-                <div style={{ width: 560, height: 480, borderRadius: '1rem', background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem' }}>Loading globe...</p>
-                </div>
-              }>
-                <GlobeInner />
-              </Suspense>
+              <GlobeWithMeasure />
             </div>
           </motion.div>
         </div>
       </div>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
     </section>
   );
 }
