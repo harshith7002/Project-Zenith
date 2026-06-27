@@ -955,6 +955,9 @@ function AISpaceGuideCard({
           console.timeEnd("Total Use My Location Flow");
           const totalTime = performance.now() - perf.clickTime;
           
+          console.log(`[Visual Log] [${totalTime.toFixed(2)}ms] AI Summary Updated: Greeting text complete`);
+          console.log(`[Visual Log] [${totalTime.toFixed(2)}ms] DASHBOARD READY`);
+          
           console.log("==================================================");
           console.log("📡 USER METRICS: USE MY LOCATION TELEMETRY SCORECARD");
           console.log("--------------------------------------------------");
@@ -1301,15 +1304,19 @@ export default function Dashboard() {
   }, [toastMessage]);
 
   // Geolocation trigger on demand
-  const handleUseMyLocation = () => {
+  const handleUseMyLocation = async () => {
+    if (isDetecting) {
+      console.log("[Visual Log] Click ignored: Geolocation request already in progress.");
+      return; // Ignore clicks if already detecting to prevent duplicate requests
+    }
+    
     setIsDetecting(true);
     let clickTime = 0;
     if (typeof window !== 'undefined') {
       clickTime = performance.now();
-      console.log(`[Visual Log] [0.00ms] Clicked "Use My Location"`);
+      console.log(`[Visual Log] [0.00ms] CLICK`);
       console.log(`[Visual Log] [0.00ms] Button Disabled ("📍 Detecting...")`);
       console.time("Total Use My Location Flow");
-      console.time("Time until Geolocation API returns");
       (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf = {
         clickTime: clickTime,
         geoTime: 0,
@@ -1321,112 +1328,171 @@ export default function Dashboard() {
     }
 
     setToastMessage('📡 Detecting your location...');
-    if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setIsDetecting(false);
-          setWeatherLoading(true);
-          const geoReturn = performance.now();
-          const latency = clickTime > 0 ? geoReturn - clickTime : 0;
-          
-          if (typeof window !== 'undefined') {
-            console.timeEnd("Time until Geolocation API returns");
-            const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
-            if (perf) {
-              perf.geoTime = geoReturn;
-              console.log(`[Perf] Geolocation API latency: ${latency.toFixed(2)}ms`);
-            }
-            console.log(`[Visual Log] [${latency.toFixed(2)}ms] Geolocation Permission Granted`);
-          }
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setToastMessage(`Geolocation is not supported by your browser.`);
+      setIsDetecting(false);
+      return;
+    }
 
-          const { latitude, longitude } = position.coords;
-          const latStr = latitude.toFixed(2);
-          const lngStr = longitude.toFixed(2);
-          const tempLabel = `Updating... (${latStr}°, ${lngStr}°)`;
-          
-          setToastMessage(`🌍 Updating observation point...`);
-          
-          // Update header and fly globe immediately
-          setObserverCoords({ lat: latitude, lng: longitude, label: tempLabel });
-          
-          if (typeof window !== 'undefined') {
-            const timeSinceClick = performance.now() - clickTime;
-            console.log(`[Visual Log] [${timeSinceClick.toFixed(2)}ms] Header Updated: ${tempLabel}`);
-            console.log(`[Visual Log] [${timeSinceClick.toFixed(2)}ms] Globe Camera Started Flying`);
-          }
+    // Wrap navigator.geolocation.getCurrentPosition in a Promise
+    const getPosition = (options: PositionOptions): Promise<GeolocationPosition> => {
+      return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+      });
+    };
 
-          window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
-            detail: { lat: latitude, lng: longitude, label: tempLabel }
-          }));
+    try {
+      const position = await getPosition({
+        enableHighAccuracy: false,
+        timeout: 5000,
+        maximumAge: 300000
+      });
 
-          // Trigger reverse geocoding in background
-          const reverseGeocode = async () => {
-            try {
-              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=en`, {
-                headers: { 'User-Agent': 'ZenithApp/1.0' }
-              });
-              if (res.ok) {
-                const data = await res.json();
-                const address = data.address;
-                if (address) {
-                  const city = address.city || address.town || address.village || address.suburb || address.county || '';
-                  const country = address.country || '';
-                  if (city && country) {
-                    return `${city}, ${country}`;
-                  } else if (country) {
-                    return country;
-                  }
+      const geoReturn = performance.now();
+      const latency = clickTime > 0 ? geoReturn - clickTime : 0;
+      
+      console.log(`[Visual Log] [${latency.toFixed(2)}ms] PERMISSION GRANTED`);
+      console.log(`[Visual Log] [${latency.toFixed(2)}ms] COORDINATES RECEIVED`);
+
+      if (typeof window !== 'undefined') {
+        const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+        if (perf) {
+          perf.geoTime = geoReturn;
+        }
+      }
+
+      const { latitude, longitude } = position.coords;
+      const latStr = latitude.toFixed(2);
+      const lngStr = longitude.toFixed(2);
+      const tempLabel = `Updating... (${latStr}°, ${lngStr}°)`;
+      
+      setToastMessage(`🌍 Updating observation point...`);
+      setWeatherLoading(true);
+      setIsDetecting(false); // Enable button once coordinates have arrived
+
+      // 1. Immediately update observerCoords state (Header)
+      setObserverCoords({ lat: latitude, lng: longitude, label: tempLabel });
+      
+      const headerUpdateTime = performance.now() - clickTime;
+      console.log(`[Visual Log] [${headerUpdateTime.toFixed(2)}ms] HEADER UPDATED`);
+
+      // 2. Immediately fly the camera
+      window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+        detail: { lat: latitude, lng: longitude, label: tempLabel, source: 'use-my-location' }
+      }));
+      console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] GLOBE UPDATED`);
+      console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] WEATHER STARTED`);
+
+      // 3. Fire geocoding and weather fetch concurrently in parallel using Promise.all
+      const [geocodeResult] = await Promise.all([
+        // Task A: Nominatim Reverse Geocoding
+        (async () => {
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=en`, {
+              headers: { 'User-Agent': 'ZenithApp/1.0' }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const address = data.address;
+              if (data && address) {
+                const city = address.city || address.town || address.village || address.suburb || address.county || '';
+                const country = address.country || '';
+                if (city && country) {
+                  return `${city}, ${country}`;
+                } else if (country) {
+                  return country;
                 }
               }
-            } catch (e) {
-              console.error("Reverse geocoding failed", e);
             }
-            return `My Location (${latStr}°, ${lngStr}°)`;
-          };
-
-          reverseGeocode().then((resolvedLabel) => {
-            setObserverCoords(prev => {
-              if (prev.lat === latitude && prev.lng === longitude) {
-                return { ...prev, label: resolvedLabel };
-              }
-              return prev;
-            });
-            if (typeof window !== 'undefined') {
-              console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] Location Geocoded: ${resolvedLabel}`);
-            }
-          });
-
-          setTimeout(() => {
-            setToastMessage(`✅ Mission Control synchronized`);
-          }, 800);
-        },
-        () => {
-          setIsDetecting(false);
-          setWeatherLoading(false);
-          if (typeof window !== 'undefined') {
-            console.timeEnd("Time until Geolocation API returns");
-            console.timeEnd("Total Use My Location Flow");
+          } catch (e) {
+            console.error("Reverse geocoding failed", e);
           }
-          setToastMessage(`Location permission denied. Continuing with the default observation point.`);
-        },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
-      );
-    } else {
+          return `My Location (${latStr}°, ${lngStr}°)`;
+        })(),
+
+        // Task B: Open-Meteo Weather Fetching (or cache load)
+        (async () => {
+          const startWeather = performance.now();
+          if (
+            weatherCache.current &&
+            Math.abs(weatherCache.current.lat - latitude) < 0.09 &&
+            Math.abs(weatherCache.current.lng - longitude) < 0.09 &&
+            Date.now() - weatherCache.current.timestamp < 600000
+          ) {
+            setCloudCover(weatherCache.current.cloud);
+            setHumidity(weatherCache.current.humidity);
+            setWeatherLoading(false);
+            console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] WEATHER FINISHED (CACHED)`);
+            return;
+          }
+
+          try {
+            const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=cloud_cover,relative_humidity_2m`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.current) {
+                setCloudCover(data.current.cloud_cover);
+                setHumidity(data.current.relative_humidity_2m);
+                weatherCache.current = {
+                  lat: latitude,
+                  lng: longitude,
+                  cloud: data.current.cloud_cover,
+                  humidity: data.current.relative_humidity_2m,
+                  timestamp: Date.now()
+                };
+              }
+            }
+            if (typeof window !== 'undefined') {
+              const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+              if (perf) {
+                perf.weatherTime = performance.now() - startWeather;
+              }
+            }
+          } catch {
+            setCloudCover(10);
+            setHumidity(35);
+          }
+          setWeatherLoading(false);
+          console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] WEATHER FINISHED`);
+        })()
+      ]);
+
+      // 4. Update coordinates state with the geocoded city label progressively
+      setObserverCoords({ lat: latitude, lng: longitude, label: geocodeResult });
+      
+      console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] Location Geocoded: ${geocodeResult}`);
+      setToastMessage(`✅ Mission Control synchronized`);
+
+    } catch (error) {
       setIsDetecting(false);
-      setToastMessage(`Geolocation is not supported by your browser.`);
+      setWeatherLoading(false);
+      setToastMessage(`Location permission denied or timed out. Continuing with default observation point.`);
+      console.error("Geolocation request failed", error);
     }
   };
 
   // 1. Listen for global coordinate changes from the Globe
   useEffect(() => {
     const handleCoordinateChange = (e: Event) => {
-      const customEvent = e as CustomEvent<{ lat: number; lng: number; label: string }>;
+      const customEvent = e as CustomEvent<{ lat: number; lng: number; label: string; source?: string }>;
       if (customEvent.detail) {
+        // If coordinate shift was triggered by handleUseMyLocation, ignore to avoid duplicate cycles
+        if (customEvent.detail.source === 'use-my-location') {
+          return;
+        }
+        
         const cleanedLabel = customEvent.detail.label.replace('Coordinates: ', '').replace(' Meridian', '');
-        setObserverCoords({
-          lat: customEvent.detail.lat,
-          lng: customEvent.detail.lng,
-          label: cleanedLabel
+        
+        // Prevent duplicate coordinate updates if coordinates match exactly
+        setObserverCoords(prev => {
+          if (prev.lat === customEvent.detail.lat && prev.lng === customEvent.detail.lng && prev.label === cleanedLabel) {
+            return prev;
+          }
+          return {
+            lat: customEvent.detail.lat,
+            lng: customEvent.detail.lng,
+            label: cleanedLabel
+          };
         });
         setToastMessage(`Now showing the sky above ${cleanedLabel}`);
       }
@@ -1520,7 +1586,7 @@ export default function Dashboard() {
     fetchISS();
     const interval = setInterval(fetchISS, 5000);
     return () => clearInterval(interval);
-  }, [satellites, observerCoords]);
+  }, [satellites, observerCoords.lat, observerCoords.lng]);
 
   // 4. Propagate all satellites in real-time
   useEffect(() => {
@@ -1578,7 +1644,7 @@ export default function Dashboard() {
       active = false;
       clearInterval(interval);
     };
-  }, [satellites, observerCoords]);
+  }, [satellites, observerCoords.lat, observerCoords.lng]);
 
   // 5. Update countdown timer to next ISS pass
   useEffect(() => {
@@ -1697,7 +1763,7 @@ export default function Dashboard() {
     setBortle(getEstimatedBortle(observerCoords.lat, observerCoords.lng));
 
     return () => { active = false; };
-  }, [observerCoords]);
+  }, [observerCoords.lat, observerCoords.lng]);
 
   // 7. Calculate overall observation quality score
   const astronomyScore = Math.max(
