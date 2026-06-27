@@ -1,12 +1,247 @@
 'use client';
 import { motion } from 'framer-motion';
 import { useEffect, useState, useRef } from 'react';
+import * as Astronomy from 'astronomy-engine';
+import * as satellite from 'satellite.js';
+import { FALLBACK_TLE_DATA } from '@/lib/tleData';
 
 interface ISSData {
   latitude: number;
   longitude: number;
   altitude: number;
   velocity: number;
+}
+
+interface VisibleObject {
+  name: string;
+  type: string;
+  altitude: number;
+  azimuth: number;
+  icon: string;
+}
+
+interface VisibleSatellite {
+  name: string;
+  type: string;
+  altitude: number;
+  azimuth: number;
+  latitude: number;
+  longitude: number;
+  height: number;
+  icon: string;
+}
+
+interface ISSPass {
+  riseTime: Date;
+  peakTime: Date;
+  peakElevation: number;
+  durationSeconds: number;
+}
+
+interface SkyQualityScoreCardProps {
+  cloudCover: number;
+  setCloudCover: (v: number) => void;
+  humidity: number;
+  setHumidity: (v: number) => void;
+  bortle: number;
+  setBortle: (v: number) => void;
+  moonBrightness: number;
+  setMoonBrightness: (v: number) => void;
+  astronomyScore: number;
+  condition: string;
+  color: string;
+}
+
+interface AISpaceGuideCardProps {
+  observerCoords: { lat: number; lng: number; label: string };
+  cloudCover: number;
+  humidity: number;
+  bortle: number;
+  moonBrightness: number;
+  astronomyScore: number;
+  condition: string;
+  combinedVisible: (VisibleObject | VisibleSatellite)[];
+  issNextPass: ISSPass | null;
+  issCountdown: number;
+}
+
+interface CosmicEventPredictorCardProps {
+  timers: { iss: number; meteor: number; alignment: number; eclipse: number };
+  observerLabel: string;
+}
+
+// Major stars catalog with J2000 RA and Dec (converted to hours for RA)
+const MAJOR_STARS = [
+  { name: 'Sirius', type: 'Star', ra: 101.287 / 15, dec: -16.716, icon: '✨' },
+  { name: 'Vega', type: 'Star', ra: 279.234 / 15, dec: 38.784, icon: '✨' },
+  { name: 'Betelgeuse', type: 'Star', ra: 88.792 / 15, dec: 7.407, icon: '🔴' },
+  { name: 'Rigel', type: 'Star', ra: 78.634 / 15, dec: -8.201, icon: '✨' },
+  { name: 'Polaris', type: 'Star', ra: 37.953 / 15, dec: 89.264, icon: '⭐' },
+  { name: 'Capella', type: 'Star', ra: 79.172 / 15, dec: 45.998, icon: '✨' },
+  { name: 'Arcturus', type: 'Star', ra: 213.915 / 15, dec: 19.182, icon: '✨' },
+  { name: 'Aldebaran', type: 'Star', ra: 68.98 / 15, dec: 16.509, icon: '✨' },
+  { name: 'Altair', type: 'Star', ra: 297.695 / 15, dec: 8.868, icon: '✨' },
+  { name: 'Antares', type: 'Star', ra: 247.351 / 15, dec: -26.432, icon: '🔴' },
+];
+
+const CONSTELLATIONS = [
+  { name: 'Orion', type: 'Constellation', ra: 88.79 / 15, dec: 7.41, icon: '🌌' },
+  { name: 'Ursa Major', type: 'Constellation', ra: 165.0 / 15, dec: 55.0, icon: '🌌' },
+  { name: 'Cassiopeia', type: 'Constellation', ra: 15.0 / 15, dec: 60.0, icon: '🌌' },
+  { name: 'Cygnus', type: 'Constellation', ra: 308.3 / 15, dec: 42.3, icon: '🌌' },
+  { name: 'Leo', type: 'Constellation', ra: 160.0 / 15, dec: 12.0, icon: '🌌' },
+  { name: 'Scorpius', type: 'Constellation', ra: 250.0 / 15, dec: -26.0, icon: '🌌' },
+];
+
+// Heuristic to estimate Bortle light pollution index based on major cities proximity
+function getEstimatedBortle(lat: number, lng: number): number {
+  const CITY_BORTLES = [
+    { lat: 28.6139, lng: 77.2090, bortle: 8 },  // New Delhi
+    { lat: 40.7128, lng: -74.0060, bortle: 8 }, // New York
+    { lat: 51.5074, lng: -0.1278, bortle: 8 },  // London
+    { lat: 35.6762, lng: 139.6503, bortle: 9 }, // Tokyo
+    { lat: -33.8688, lng: 151.2093, bortle: 7 }, // Sydney
+    { lat: -1.2921, lng: 36.8219, bortle: 6 },  // Nairobi
+    { lat: 21.1458, lng: 79.0882, bortle: 5 },  // Nagpur
+  ];
+
+  let minDistance = Infinity;
+  let closestBortle = 4; // default suburban
+
+  for (const city of CITY_BORTLES) {
+    const d = Math.sqrt((city.lat - lat) ** 2 + (city.lng - lng) ** 2);
+    if (d < minDistance) {
+      minDistance = d;
+      closestBortle = city.bortle;
+    }
+  }
+
+  // If far away from city centers
+  if (minDistance > 3.0) {
+    return 2; // dark sky
+  }
+  return closestBortle;
+}
+
+// SGP4 TLE orbital propagation wrapper using satellite.js
+function propagateTLE(tleLine1: string, tleLine2: string, date: Date, obsLat: number, obsLng: number) {
+  try {
+    const satrec = satellite.twoline2satrec(tleLine1, tleLine2);
+    const positionAndVelocity = satellite.propagate(satrec, date);
+    if (!positionAndVelocity || !positionAndVelocity.position || typeof positionAndVelocity.position === 'boolean') {
+      return null;
+    }
+    
+    const pos = positionAndVelocity.position;
+    const gmst = satellite.gstime(date);
+    const observerGd = {
+      latitude: satellite.degreesToRadians(obsLat),
+      longitude: satellite.degreesToRadians(obsLng),
+      height: 0.1 // km
+    };
+    
+    const positionEcf = satellite.eciToEcf(pos, gmst);
+    const lookAngles = satellite.ecfToLookAngles(observerGd, positionEcf);
+    
+    const elevation = satellite.radiansToDegrees(lookAngles.elevation);
+    const azimuth = satellite.radiansToDegrees(lookAngles.azimuth);
+    
+    const positionGd = satellite.eciToGeodetic(pos, gmst);
+    const satLat = satellite.radiansToDegrees(positionGd.latitude);
+    const satLng = satellite.radiansToDegrees(positionGd.longitude);
+    const satAlt = positionGd.height; // km
+
+    return {
+      elevation,
+      azimuth,
+      latitude: satLat,
+      longitude: satLng,
+      altitude: satAlt
+    };
+  } catch (err) {
+    console.error("TLE propagation error", err);
+    return null;
+  }
+}
+
+// Predicts next ISS pass in 24 hour window
+function predictNextISSPass(obsLat: number, obsLng: number, tleLine1: string, tleLine2: string) {
+  try {
+    const observer = {
+      latitude: satellite.degreesToRadians(obsLat),
+      longitude: satellite.degreesToRadians(obsLng),
+      height: 0 // km
+    };
+    
+    const satrec = satellite.twoline2satrec(tleLine1, tleLine2);
+    const now = new Date();
+    
+    let passStart: Date | null = null;
+    let passPeak: Date | null = null;
+    let maxElevation = -90;
+    let passEnd: Date | null = null;
+    
+    // Step in 5-minute increments first to locate candidates
+    for (let minutes = 0; minutes < 1440; minutes += 5) {
+      const checkTime = new Date(now.getTime() + minutes * 60 * 1000);
+      const posVal = satellite.propagate(satrec, checkTime);
+      if (!posVal || !posVal.position || typeof posVal.position === 'boolean') continue;
+      const pos = posVal.position;
+      const gmst = satellite.gstime(checkTime);
+      const posEcf = satellite.eciToEcf(pos, gmst);
+      const look = satellite.ecfToLookAngles(observer, posEcf);
+      const el = satellite.radiansToDegrees(look.elevation);
+      
+      if (el > 2) { // Candidate found
+        const t = checkTime.getTime();
+        const step = 15 * 1000; // 15 seconds refinement
+        
+        // Scan backward to find the exact rise (crossing 0 degrees)
+        let checkT = t;
+        let currentEl = el;
+        while (currentEl > 0 && checkT > now.getTime()) {
+          checkT -= step;
+          const posValCheck = satellite.propagate(satrec, new Date(checkT));
+          if (!posValCheck || !posValCheck.position || typeof posValCheck.position === 'boolean') break;
+          const posCheck = posValCheck.position;
+          const g = satellite.gstime(new Date(checkT));
+          const lookAngles = satellite.ecfToLookAngles(observer, satellite.eciToEcf(posCheck, g));
+          currentEl = satellite.radiansToDegrees(lookAngles.elevation);
+        }
+        passStart = new Date(checkT);
+        
+        // Scan forward to find peak elevation and end of pass
+        checkT = t;
+        currentEl = el;
+        while (currentEl > 0 && checkT < now.getTime() + 24 * 3600 * 1000) {
+          checkT += step;
+          const posValCheck = satellite.propagate(satrec, new Date(checkT));
+          if (!posValCheck || !posValCheck.position || typeof posValCheck.position === 'boolean') break;
+          const posCheck = posValCheck.position;
+          const g = satellite.gstime(new Date(checkT));
+          const lookAngles = satellite.ecfToLookAngles(observer, satellite.eciToEcf(posCheck, g));
+          currentEl = satellite.radiansToDegrees(lookAngles.elevation);
+          if (currentEl > maxElevation) {
+            maxElevation = currentEl;
+            passPeak = new Date(checkT);
+          }
+        }
+        passEnd = new Date(checkT);
+        
+        if (passStart && passEnd && passPeak && maxElevation > 10) {
+          return {
+            riseTime: passStart,
+            peakTime: passPeak,
+            peakElevation: maxElevation,
+            durationSeconds: Math.round((passEnd.getTime() - passStart.getTime()) / 1000)
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Pass prediction error", err);
+  }
+  return null;
 }
 
 // Wrapper to track mouse and assign CSS variables for glowing glassmorphism spotlight
@@ -83,15 +318,33 @@ function DashboardValueCounter({ value, decimals = 1, suffix = '' }: { value: nu
   return <span style={{ fontFamily: 'monospace' }}>{displayValue.toFixed(decimals)}{suffix}</span>;
 }
 
-// Radar SVG widget
-function RadarWidget() {
-  const blips = [
-    { cx: 100, cy: 60, color: '#7C3AED', r: 4, label: 'ISS' },
-    { cx: 140, cy: 110, color: '#06B6D4', r: 3, label: 'Jupiter' },
-    { cx: 70, cy: 130, color: '#F59E0B', r: 3, label: 'Mars' },
-    { cx: 150, cy: 70, color: '#10B981', r: 3, label: 'Starlink' },
-    { cx: 55, cy: 90, color: '#EF4444', r: 2.5, label: 'GPS-24' },
-  ];
+// Radar SVG widget displaying real satellites
+function RadarWidget({ satellites }: { satellites: VisibleSatellite[] }) {
+  const blips = satellites.map((sat) => {
+    const el = sat.altitude;
+    const az = sat.azimuth;
+    // Map polar coordinates to Cartesian SVG space
+    // Center is 100, 100. Horizon radius is 90.
+    const d = 90 * (90 - el) / 90;
+    const thetaRad = (az * Math.PI) / 180;
+    const cx = 100 + d * Math.sin(thetaRad);
+    const cy = 100 - d * Math.cos(thetaRad);
+
+    // Color based on satellite type
+    let color = '#7C3AED'; // default ISS (violet)
+    if (sat.type === 'GPS') color = '#06B6D4';     // cyan
+    if (sat.type === 'Weather') color = '#F59E0B'; // amber
+    if (sat.type === 'Starlink') color = '#10B981'; // green
+    if (sat.type === 'Nav') color = '#EF4444';      // red
+
+    return {
+      cx,
+      cy,
+      color,
+      r: sat.name.includes('ISS') ? 4 : 3,
+      label: sat.name.split(' ')[0]
+    };
+  });
 
   return (
     <div style={{ position: 'relative', width: 190, height: 190, margin: '0.5rem auto' }}>
@@ -134,7 +387,7 @@ function RadarWidget() {
   );
 }
 
-function ISSCard({ data }: { data: ISSData | null }) {
+function ISSCard({ data, countdownText }: { data: ISSData | null; countdownText: string }) {
   const values = {
     altitude: data ? data.altitude : 408.3,
     velocity: data ? data.velocity / 1000 : 7.66,
@@ -181,52 +434,26 @@ function ISSCard({ data }: { data: ISSData | null }) {
         border: '1px solid rgba(124,58,237,0.15)',
         textAlign: 'center',
       }}>
-        <p style={{ fontSize: '0.75rem', color: '#C4B5FD' }}>🕐 Next pass in <strong>2h 34m</strong></p>
+        <p style={{ fontSize: '0.75rem', color: '#C4B5FD' }}>🕐 {countdownText}</p>
       </div>
     </GlassSpotlightCard>
   );
 }
 
-function SkyQualityScoreCard() {
-  const [cloudCover, setCloudCover] = useState(5);
-  const [humidity, setHumidity] = useState(20);
-  const [bortle, setBortle] = useState(2);
-  const [moonBrightness, setMoonBrightness] = useState(8);
-
-  const astronomyScore = Math.max(
-    0,
-    Math.min(
-      100,
-      Math.round(
-        100 -
-          cloudCover * 0.4 -
-          humidity * 0.15 -
-          (bortle - 1) * 6 -
-          moonBrightness * 0.25
-      )
-    )
-  );
-
-  let condition = 'Poor Observation Conditions';
-  let color = '#F87171';
-  if (astronomyScore >= 85) {
-    condition = 'Excellent Observation Conditions';
-    color = '#4ADE80';
-  } else if (astronomyScore >= 70) {
-    condition = 'Good Observation Conditions';
-    color = '#60A5FA';
-  } else if (astronomyScore >= 50) {
-    condition = 'Fair Observation Conditions';
-    color = '#FBBF24';
-  }
-
+function SkyQualityScoreCard({ 
+  cloudCover, setCloudCover,
+  humidity, setHumidity,
+  bortle, setBortle,
+  moonBrightness, setMoonBrightness,
+  astronomyScore, color
+}: SkyQualityScoreCardProps) {
   return (
     <GlassSpotlightCard>
       <div className="dashboard-card-header">
         <span className="dashboard-card-icon">🌤️</span>
         <div>
           <h3 className="dashboard-card-title">Sky Quality Score</h3>
-          <span style={{ fontSize: '0.625rem', color: '#A78BFA', fontWeight: 600 }}>Interactive Calculator</span>
+          <span style={{ fontSize: '0.625rem', color: '#A78BFA', fontWeight: 600 }}>Real-Time Calculator</span>
         </div>
       </div>
 
@@ -309,22 +536,16 @@ function SkyQualityScoreCard() {
             style={{ width: `${astronomyScore}%`, background: `linear-gradient(90deg, #7C3AED, ${color})`, transition: 'width 0.2s ease' }}
           />
         </div>
-        <p style={{ fontSize: '0.6875rem', color, fontWeight: 700, textAlign: 'center', transition: 'color 0.2s' }}>
-          {condition}
+        <p style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 1.3, marginBottom: '0.35rem' }}>
+          Estimated observation quality derived from cloud cover, humidity, moon illumination, and an approximate light-pollution model.
         </p>
       </div>
     </GlassSpotlightCard>
   );
 }
 
-function VisibleObjectsCard() {
-  const objects = [
-    { name: 'Jupiter', type: 'Planet', altitude: '47°', icon: '🪐' },
-    { name: 'Mars', type: 'Planet', altitude: '32°', icon: '🔴' },
-    { name: 'Orion', type: 'Constellation', altitude: '58°', icon: '⭐' },
-    { name: 'Sirius', type: 'Star', altitude: '23°', icon: '✨' },
-    { name: 'Starlink-2847', type: 'Satellite', altitude: '65°', icon: '🛰️' },
-  ];
+function VisibleObjectsCard({ objects }: { objects: VisibleObject[] }) {
+  const displayObjects = objects.slice(0, 5);
 
   return (
     <GlassSpotlightCard>
@@ -334,44 +555,50 @@ function VisibleObjectsCard() {
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.375rem', justifyContent: 'center' }}>
-        {objects.map((obj, i) => (
-          <motion.div
-            key={obj.name}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '0.5rem 0.75rem',
-              borderRadius: '0.625rem',
-              cursor: 'pointer',
-              background: 'rgba(255,255,255,0.02)',
-              border: '1px solid rgba(255,255,255,0.04)',
-              transition: 'all 0.2s',
-            }}
-            initial={{ opacity: 0, x: -10 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: i * 0.08 }}
-            whileHover={{ backgroundColor: 'rgba(124, 58, 237, 0.08)', borderColor: 'rgba(124, 58, 237, 0.2)' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-              <span style={{ fontSize: '1.125rem' }}>{obj.icon}</span>
-              <div>
-                <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#fff' }}>{obj.name}</p>
-                <p style={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.35)' }}>{obj.type}</p>
+        {displayObjects.length > 0 ? (
+          displayObjects.map((obj, i) => (
+            <motion.div
+              key={obj.name}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '0.625rem',
+                cursor: 'pointer',
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid rgba(255,255,255,0.04)',
+                transition: 'all 0.2s',
+              }}
+              initial={{ opacity: 0, x: -10 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.08 }}
+              whileHover={{ backgroundColor: 'rgba(124, 58, 237, 0.08)', borderColor: 'rgba(124, 58, 237, 0.2)' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                <span style={{ fontSize: '1.125rem' }}>{obj.icon}</span>
+                <div>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#fff' }}>{obj.name}</p>
+                  <p style={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.35)' }}>{obj.type}</p>
+                </div>
               </div>
-            </div>
-            <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#38D1F0', fontFamily: 'monospace' }}>
-              {obj.altitude}
-            </span>
-          </motion.div>
-        ))}
+              <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#38D1F0', fontFamily: 'monospace' }}>
+                {Math.round(obj.altitude)}°
+              </span>
+            </motion.div>
+          ))
+        ) : (
+          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem' }}>
+            No prominent bodies above the horizon.
+          </div>
+        )}
       </div>
     </GlassSpotlightCard>
   );
 }
 
-function SatelliteRadarCard() {
+function SatelliteRadarCard({ satellites }: { satellites: VisibleSatellite[] }) {
   const legend = [
     { color: '#7C3AED', label: 'ISS' },
     { color: '#06B6D4', label: 'GPS' },
@@ -387,7 +614,7 @@ function SatelliteRadarCard() {
         <h3 className="dashboard-card-title">Satellite Radar</h3>
       </div>
 
-      <RadarWidget />
+      <RadarWidget satellites={satellites} />
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem', marginTop: '0.5rem', justifyContent: 'center' }}>
         {legend.map(item => (
@@ -401,7 +628,11 @@ function SatelliteRadarCard() {
   );
 }
 
-function AISpaceGuideCard() {
+function AISpaceGuideCard({ 
+  observerCoords, cloudCover, humidity, 
+  bortle, moonBrightness, astronomyScore, 
+  combinedVisible, issNextPass, issCountdown 
+}: AISpaceGuideCardProps) {
   const [messages, setMessages] = useState<{ sender: 'user' | 'bot'; text: string }[]>([
     { sender: 'bot', text: 'Hello! I am your AI Space Guide. Ask me anything about what is visible in the sky above you right now.' }
   ]);
@@ -413,26 +644,89 @@ function AISpaceGuideCard() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  const generateGuideResponse = (question: string) => {
+    const q = question.toLowerCase();
+    const loc = observerCoords.label;
+    const score = astronomyScore;
+    
+    // Extract visible categories
+    const visiblePlanets = combinedVisible.filter((o) => o.type === 'Planet');
+    const visibleStars = combinedVisible.filter((o) => o.type === 'Star');
+    const visibleSats = combinedVisible.filter((o) => o.type !== 'Planet' && o.type !== 'Star' && o.type !== 'Natural Satellite' && o.type !== 'Constellation');
+
+    let reply = '';
+
+    if (q.includes('see') || q.includes('seeing') || q.includes('above me') || q.includes('look up') || q.includes('now') || q.includes('visible')) {
+      const pText = visiblePlanets.length > 0
+        ? `planets ${visiblePlanets.map((p) => `${p.name} (${p.altitude.toFixed(0)}°)`).join(', ')}`
+        : 'no major planets';
+      const sText = visibleStars.length > 0
+        ? `stars like ${visibleStars.slice(0, 3).map((s) => `${s.name} (${s.altitude.toFixed(0)}°)`).join(', ')}`
+        : 'no catalogued major stars';
+      const satText = visibleSats.length > 0
+        ? `tracking ${visibleSats.length} satellites overhead (including ${visibleSats[0].name})`
+        : 'no visible satellites';
+
+      reply = `Observing from ${loc}, sky quality is currently ${score}/100. Overhead you can see ${pText}, and ${sText}. Our radar is also ${satText}.`;
+    } 
+    else if (q.includes('iss') || q.includes('space station') || q.includes('flyover') || q.includes('pass')) {
+      const issObj = visibleSats.find((s) => s.name.includes('ISS'));
+      if (issObj) {
+        reply = `The ISS is visible directly overhead right now at an altitude of ${issObj.altitude.toFixed(1)}° (Azimuth: ${issObj.azimuth.toFixed(0)}°). Spot it as a bright white dot crossing the sky!`;
+      } else if (issNextPass) {
+        const timeStr = issNextPass.riseTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const remainingMin = Math.round(issCountdown / 60);
+        reply = `The ISS is currently below the horizon. The next visible flyover will occur in ${remainingMin} minutes (at ${timeStr} local time), reaching a peak altitude of ${issNextPass.peakElevation.toFixed(0)}° and lasting ${Math.floor(issNextPass.durationSeconds / 60)}m ${issNextPass.durationSeconds % 60}s.`;
+      } else {
+        reply = `No visible ISS passes predicted for ${loc} over the next 24 hours. The orbit is currently not crossing your zenith.`;
+      }
+    } 
+    else if (q.includes('weather') || q.includes('cloud') || q.includes('condition') || q.includes('humidity') || q.includes('pollution') || q.includes('bortle')) {
+      let advice = '';
+      if (score >= 80) advice = 'Observations will be crystal clear. Perfect night for stargazing!';
+      else if (score >= 50) advice = 'Skies are fair. Good for observing bright planets or the Moon.';
+      else advice = 'High cloud cover or humidity. Conditions are sub-optimal.';
+      
+      reply = `Atmospheric profile for ${loc}: Cloud cover is ${cloudCover}%, humidity is ${humidity}%, moon brightness is ${moonBrightness}%, and light pollution is estimated at Bortle Class ${bortle}. ${advice}`;
+    } 
+    else if (q.includes('mars')) {
+      const m = visiblePlanets.find((p) => p.name === 'Mars');
+      reply = m 
+        ? `Mars is visible above the horizon (Alt: ${m.altitude.toFixed(0)}°, Az: ${m.azimuth.toFixed(0)}°). It shines with a steady, warm orange-red color.`
+        : `Mars is currently below the horizon at ${loc}.`;
+    }
+    else if (q.includes('jupiter')) {
+      const j = visiblePlanets.find((p) => p.name === 'Jupiter');
+      reply = j 
+        ? `Jupiter is visible overhead (Alt: ${j.altitude.toFixed(0)}°, Az: ${j.azimuth.toFixed(0)}°). It is extremely bright and easily resolved with binoculars.`
+        : `Jupiter is currently below the horizon at ${loc}.`;
+    }
+    else if (q.includes('saturn')) {
+      const s = visiblePlanets.find((p) => p.name === 'Saturn');
+      reply = s 
+        ? `Saturn is visible at an altitude of ${s.altitude.toFixed(0)}°. A great target for checking planetary ring structures.`
+        : `Saturn is currently below the horizon at ${loc}.`;
+    }
+    else if (q.includes('satellite') || q.includes('radar') || q.includes('starlink') || q.includes('gps')) {
+      const starlinks = visibleSats.filter((s) => s.type === 'Starlink');
+      reply = `We are tracking ${visibleSats.length} satellites overhead at ${loc}, including ${starlinks.length} Starlink units, and various GPS/Nav assets.`;
+    }
+    else {
+      reply = `System scan complete for ${loc}. We have calculated ${combinedVisible.length} visible bodies above the horizon (Planets, Stars, Constellations, and Satellites). Ask me about visible objects, weather, or the next ISS pass!`;
+    }
+
+    return reply;
+  };
+
   const simulateAiReply = (userQuestion: string) => {
     setMessages(prev => [...prev, { sender: 'user', text: userQuestion }]);
     setIsTyping(true);
 
     setTimeout(() => {
       setIsTyping(false);
-      let fullReply = '';
-
-      if (userQuestion.includes('seeing above me right now') || userQuestion.includes('above me right now')) {
-        fullReply = 'The bright object visible at 67° altitude is Jupiter. It is currently one of the brightest objects in the night sky. Through binoculars you may observe its Galilean moons.';
-      } else if (userQuestion.toLowerCase().includes('iss') || userQuestion.toLowerCase().includes('space station')) {
-        fullReply = 'The International Space Station (ISS) is moving rapidly. Next pass will occur tonight at 9:42 PM. It will appear in the NW sky at 10° elevation and rise to 42° before setting.';
-      } else if (userQuestion.toLowerCase().includes('mars')) {
-        fullReply = 'Mars is visible at 32° altitude, shining with a steady orange-red light in the constellation Taurus. A telescope reveals its polar ice caps.';
-      } else {
-        fullReply = 'Scanning night sky coordinates... We see Jupiter at 67° altitude, Mars at 32° altitude, and Starlink-2847 satellite path crossing over. Sky conditions are excellent.';
-      }
-
-      setMessages(prev => [...prev, { sender: 'bot', text: fullReply }]);
-    }, 1200);
+      const reply = generateGuideResponse(userQuestion);
+      setMessages(prev => [...prev, { sender: 'bot', text: reply }]);
+    }, 800);
   };
 
   const handleSend = (e: React.FormEvent) => {
@@ -528,26 +822,7 @@ function AISpaceGuideCard() {
   );
 }
 
-function CosmicEventPredictorCard() {
-  const [timers, setTimers] = useState({
-    iss: 9195,        // 2h 33m 15s
-    meteor: 18700,    // 5h 11m 40s
-    alignment: 53042, // 14h 44m 02s
-    eclipse: 130750,  // 36h 19m 10s
-  });
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTimers(prev => ({
-        iss: prev.iss > 0 ? prev.iss - 1 : 9195,
-        meteor: prev.meteor > 0 ? prev.meteor - 1 : 18700,
-        alignment: prev.alignment > 0 ? prev.alignment - 1 : 53042,
-        eclipse: prev.eclipse > 0 ? prev.eclipse - 1 : 130750,
-      }));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
+function CosmicEventPredictorCard({ timers, observerLabel }: CosmicEventPredictorCardProps) {
   const formatDuration = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
@@ -568,7 +843,7 @@ function CosmicEventPredictorCard() {
         <span className="dashboard-card-icon">⏳</span>
         <div>
           <h3 className="dashboard-card-title">Cosmic Event Predictor</h3>
-          <span style={{ fontSize: '0.625rem', color: '#06B6D4', fontWeight: 600 }}>📍 Nagpur, India</span>
+          <span style={{ fontSize: '0.625rem', color: '#06B6D4', fontWeight: 600 }}>📍 {observerLabel}</span>
         </div>
       </div>
 
@@ -592,27 +867,370 @@ function CosmicEventPredictorCard() {
         border: '1px solid rgba(6,182,212,0.15)',
         textAlign: 'center'
       }}>
-        <p style={{ fontSize: '0.6875rem', color: '#22D3EE' }}>Proactive monitoring of Nagpur meridian coordinates</p>
+        <p style={{ fontSize: '0.6875rem', color: '#22D3EE' }}>Proactive monitoring of local meridian coordinates</p>
       </div>
     </GlassSpotlightCard>
   );
 }
 
 export default function Dashboard() {
-  const [issData, setIssData] = useState<ISSData | null>(null);
+  const [observerCoords, setObserverCoords] = useState({
+    lat: 21.1458,
+    lng: 79.0882,
+    label: 'Nagpur, India'
+  });
 
+  const [issData, setIssData] = useState<ISSData | null>(null);
+  const [satellites, setSatellites] = useState(FALLBACK_TLE_DATA);
+  const [visibleSatsList, setVisibleSatsList] = useState<VisibleSatellite[]>([]);
+  const [issNextPass, setIssNextPass] = useState<ISSPass | null>(null);
+  const [issCountdown, setIssCountdown] = useState<number>(9195);
+  const [countdownText, setCountdownText] = useState('Calculating next pass...');
+
+  // Weather states (pre-populated dynamically, can still be adjusted by user)
+  const [cloudCover, setCloudCover] = useState(15);
+  const [humidity, setHumidity] = useState(30);
+  const [bortle, setBortle] = useState(4);
+  const [moonBrightness, setMoonBrightness] = useState(8);
+
+  // 1. Listen for global coordinate changes from the Globe
+  useEffect(() => {
+    const handleCoordinateChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ lat: number; lng: number; label: string }>;
+      if (customEvent.detail) {
+        setObserverCoords({
+          lat: customEvent.detail.lat,
+          lng: customEvent.detail.lng,
+          label: customEvent.detail.label || `${customEvent.detail.lat.toFixed(2)}°, ${customEvent.detail.lng.toFixed(2)}°`
+        });
+      }
+    };
+
+    window.addEventListener('zenith-coordinate-change', handleCoordinateChange);
+    return () => {
+      window.removeEventListener('zenith-coordinate-change', handleCoordinateChange);
+    };
+  }, []);
+
+  // 2. Fetch fresh TLE sets from CelesTrak (with fallback)
+  const fetchCelesTrakTLE = async (noradId: number, fallback: { line1: string; line2: string }) => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
+      
+      const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${noradId}&FORMAT=TLE`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const text = await res.text();
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length >= 3) {
+          return {
+            line1: lines[1],
+            line2: lines[2]
+          };
+        }
+      }
+    } catch { /* use fallback */ }
+    return fallback;
+  };
+
+  useEffect(() => {
+    const fetchAllTLEs = async () => {
+      const updated = await Promise.all(
+        FALLBACK_TLE_DATA.map(async (sat) => {
+          const fresh = await fetchCelesTrakTLE(sat.noradId, { line1: sat.line1, line2: sat.line2 });
+          return {
+            ...sat,
+            line1: fresh.line1,
+            line2: fresh.line2
+          };
+        })
+      );
+      setSatellites(updated);
+    };
+    fetchAllTLEs();
+  }, []);
+
+  // 3. Track live ISS position (WhereTheISS API)
   useEffect(() => {
     const fetchISS = async () => {
       try {
         const res = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
         const data = await res.json();
-        setIssData({ latitude: data.latitude, longitude: data.longitude, altitude: data.altitude, velocity: data.velocity });
-      } catch { /* use defaults */ }
+        setIssData({
+          latitude: data.latitude,
+          longitude: data.longitude,
+          altitude: data.altitude,
+          velocity: data.velocity
+        });
+      } catch {
+        // Use local propagation if live API fails
+        const issTLE = satellites.find(s => s.noradId === 25544);
+        if (issTLE) {
+          const prop = propagateTLE(issTLE.line1, issTLE.line2, new Date(), observerCoords.lat, observerCoords.lng);
+          if (prop) {
+            setIssData({
+              latitude: prop.latitude,
+              longitude: prop.longitude,
+              altitude: prop.altitude,
+              velocity: 27560 // typical speed in km/h
+            });
+          }
+        }
+      }
     };
     fetchISS();
     const interval = setInterval(fetchISS, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [satellites, observerCoords]);
+
+  // 4. Propagate all satellites in real-time
+  useEffect(() => {
+    const propagateAll = () => {
+      const date = new Date();
+      const visibleSats: VisibleSatellite[] = [];
+
+      satellites.forEach(sat => {
+        const prop = propagateTLE(sat.line1, sat.line2, date, observerCoords.lat, observerCoords.lng);
+        if (prop && prop.elevation > 0) {
+          visibleSats.push({
+            name: sat.name,
+            type: sat.type,
+            altitude: prop.elevation,
+            azimuth: prop.azimuth,
+            latitude: prop.latitude,
+            longitude: prop.longitude,
+            height: prop.altitude,
+            icon: sat.icon
+          });
+        }
+      });
+
+      // Update ISS next pass
+      const issTLE = satellites.find(s => s.noradId === 25544);
+      if (issTLE) {
+        const pass = predictNextISSPass(observerCoords.lat, observerCoords.lng, issTLE.line1, issTLE.line2);
+        if (pass) {
+          setIssNextPass(pass);
+        }
+      }
+
+      setVisibleSatsList(visibleSats);
+    };
+
+    propagateAll();
+    const interval = setInterval(propagateAll, 4000); // propagate every 4 seconds to conserve CPU
+    return () => clearInterval(interval);
+  }, [satellites, observerCoords]);
+
+  // 5. Update countdown timer to next ISS pass
+  useEffect(() => {
+    if (!issNextPass) {
+      setCountdownText('Calculating next pass...');
+      setIssCountdown(9195);
+      return;
+    }
+    const updateCountdown = () => {
+      const diff = issNextPass.riseTime.getTime() - Date.now();
+      const diffSeconds = Math.max(0, Math.round(diff / 1000));
+      setIssCountdown(diffSeconds);
+
+      if (diff <= 0) {
+        setCountdownText('ISS is visible now!');
+      } else {
+        const hours = Math.floor(diffSeconds / 3600);
+        const mins = Math.floor((diffSeconds % 3600) / 60);
+        const secs = diffSeconds % 60;
+        
+        let text = '';
+        if (hours > 0) text += `${hours}h `;
+        if (mins > 0 || hours > 0) text += `${mins}m `;
+        text += `${secs}s`;
+        setCountdownText(`Next pass in ${text}`);
+      }
+    };
+    
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [issNextPass]);
+
+  // 6. Fetch Open-Meteo weather coordinates & Moon phase
+  useEffect(() => {
+    let active = true;
+    const fetchWeather = async () => {
+      try {
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${observerCoords.lat}&longitude=${observerCoords.lng}&current=cloud_cover,relative_humidity_2m`);
+        if (!active) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data.current) {
+            setCloudCover(data.current.cloud_cover);
+            setHumidity(data.current.relative_humidity_2m);
+          }
+        }
+      } catch {
+        if (active) {
+          setCloudCover(10);
+          setHumidity(35);
+        }
+      }
+    };
+
+    fetchWeather();
+    
+    try {
+      const time = Astronomy.MakeTime(new Date());
+      const ill = Astronomy.Illumination(Astronomy.Body.Moon, time);
+      setMoonBrightness(Math.round(ill.phase_fraction * 100));
+    } catch {
+      setMoonBrightness(8);
+    }
+
+    setBortle(getEstimatedBortle(observerCoords.lat, observerCoords.lng));
+
+    return () => { active = false; };
+  }, [observerCoords]);
+
+  // 7. Calculate overall observation quality score
+  const astronomyScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        100 -
+          cloudCover * 0.4 -
+          humidity * 0.15 -
+          (bortle - 1) * 6 -
+          moonBrightness * 0.25
+      )
+    )
+  );
+
+  let condition = 'Poor Observation Conditions';
+  let color = '#F87171';
+  if (astronomyScore >= 85) {
+    condition = 'Excellent Observation Conditions';
+    color = '#4ADE80';
+  } else if (astronomyScore >= 70) {
+    condition = 'Good Observation Conditions';
+    color = '#60A5FA';
+  } else if (astronomyScore >= 50) {
+    condition = 'Fair Observation Conditions';
+    color = '#FBBF24';
+  }
+
+  // 8. Calculate visible sky objects
+  const calculateVisibleObjects = (lat: number, lng: number, date: Date) => {
+    const obs = new Astronomy.Observer(lat, lng, 0);
+    const time = Astronomy.MakeTime(date);
+
+    const bodies = [
+      { name: 'Moon', body: Astronomy.Body.Moon, icon: '🌙' },
+      { name: 'Mercury', body: Astronomy.Body.Mercury, icon: '🪐' },
+      { name: 'Venus', body: Astronomy.Body.Venus, icon: '✨' },
+      { name: 'Mars', body: Astronomy.Body.Mars, icon: '🔴' },
+      { name: 'Jupiter', body: Astronomy.Body.Jupiter, icon: '🪐' },
+      { name: 'Saturn', body: Astronomy.Body.Saturn, icon: '🪐' },
+    ];
+
+    const visible: VisibleObject[] = [];
+
+    bodies.forEach(b => {
+      try {
+        const equ = Astronomy.Equator(b.body, time, obs, true, true);
+        const hor = Astronomy.Horizon(time, obs, equ.ra, equ.dec, 'normal');
+        if (hor.altitude > 0) {
+          visible.push({
+            name: b.name,
+            type: b.name === 'Moon' ? 'Natural Satellite' : 'Planet',
+            altitude: hor.altitude,
+            azimuth: hor.azimuth,
+            icon: b.icon
+          });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    MAJOR_STARS.forEach(s => {
+      try {
+        const hor = Astronomy.Horizon(time, obs, s.ra, s.dec, 'normal');
+        if (hor.altitude > 0) {
+          visible.push({
+            name: s.name,
+            type: s.type,
+            altitude: hor.altitude,
+            azimuth: hor.azimuth,
+            icon: s.icon
+          });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    CONSTELLATIONS.forEach(c => {
+      try {
+        const hor = Astronomy.Horizon(time, obs, c.ra, c.dec, 'normal');
+        if (hor.altitude > 0) {
+          visible.push({
+            name: c.name,
+            type: c.type,
+            altitude: hor.altitude,
+            azimuth: hor.azimuth,
+            icon: c.icon
+          });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    return visible;
+  };
+
+  const combinedVisible = [
+    ...calculateVisibleObjects(observerCoords.lat, observerCoords.lng, new Date()),
+    ...visibleSatsList
+  ].sort((a, b) => b.altitude - a.altitude);
+
+  // 9. Predictor Card timers
+  const [timers, setTimers] = useState({
+    iss: 9195,
+    meteor: 18700,
+    alignment: 53042,
+    eclipse: 130750,
+  });
+
+  useEffect(() => {
+    const updatePredictors = () => {
+      const now = Date.now();
+      
+      const meteorTarget = new Date('2026-07-28T22:00:00Z').getTime();
+      const alignmentTarget = new Date('2026-09-15T05:00:00Z').getTime();
+      const eclipseTarget = new Date('2026-08-28T02:00:00Z').getTime();
+      
+      const issSeconds = issCountdown;
+      const meteorSeconds = Math.max(0, Math.round((meteorTarget - now) / 1000));
+      const alignmentSeconds = Math.max(0, Math.round((alignmentTarget - now) / 1000));
+      const eclipseSeconds = Math.max(0, Math.round((eclipseTarget - now) / 1000));
+      
+      setTimers({
+        iss: issSeconds,
+        meteor: meteorSeconds,
+        alignment: alignmentSeconds,
+        eclipse: eclipseSeconds
+      });
+    };
+    
+    updatePredictors();
+    const interval = setInterval(updatePredictors, 1000);
+    return () => clearInterval(interval);
+  }, [issCountdown]);
 
   return (
     <section className="dashboard-section" id="dashboard" style={{ position: 'relative' }}>
@@ -653,7 +1271,7 @@ export default function Dashboard() {
               <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#4ADE80', letterSpacing: '0.08em' }}>All Systems Nominal</span>
             </div>
             <span style={{ color: 'rgba(255,255,255,0.15)' }} className="hidden md:inline">|</span>
-            <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>📍 Nagpur Meridian & Global Satellites</span>
+            <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>📍 {observerCoords.label} Meridian</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative', zIndex: 3 }}>
             <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)' }}>Telemetry Feed</span>
@@ -663,23 +1281,64 @@ export default function Dashboard() {
 
         {/* Dashboard grid */}
         <div className="dashboard-grid">
-          {[ISSCard, SkyQualityScoreCard, VisibleObjectsCard, SatelliteRadarCard, AISpaceGuideCard, CosmicEventPredictorCard].map((Card, i) => (
-            <motion.div
-              key={i}
-              style={{ display: 'flex', flexDirection: 'column' }}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.08 }}
-            >
-              {i === 0 ? <ISSCard data={issData} /> :
-               i === 1 ? <SkyQualityScoreCard /> :
-               i === 2 ? <VisibleObjectsCard /> :
-               i === 3 ? <SatelliteRadarCard /> :
-               i === 4 ? <AISpaceGuideCard /> :
-               <CosmicEventPredictorCard />}
-            </motion.div>
-          ))}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <ISSCard data={issData} countdownText={countdownText} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <SkyQualityScoreCard 
+              cloudCover={cloudCover} setCloudCover={setCloudCover}
+              humidity={humidity} setHumidity={setHumidity}
+              bortle={bortle} setBortle={setBortle}
+              moonBrightness={moonBrightness} setMoonBrightness={setMoonBrightness}
+              astronomyScore={astronomyScore}
+              condition={condition}
+              color={color}
+            />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <VisibleObjectsCard objects={combinedVisible} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <SatelliteRadarCard satellites={visibleSatsList} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <AISpaceGuideCard 
+              observerCoords={observerCoords}
+              cloudCover={cloudCover}
+              humidity={humidity}
+              bortle={bortle}
+              moonBrightness={moonBrightness}
+              astronomyScore={astronomyScore}
+              condition={condition}
+              combinedVisible={combinedVisible}
+              issNextPass={issNextPass}
+              issCountdown={issCountdown}
+            />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <CosmicEventPredictorCard timers={timers} observerLabel={observerCoords.label} />
+          </div>
+        </div>
+
+        {/* Data Source Credits Badge */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          gap: '1.25rem',
+          marginTop: '2rem',
+          padding: '0.75rem',
+          fontSize: '0.625rem',
+          color: 'rgba(255,255,255,0.25)',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          borderTop: '1px solid rgba(255,255,255,0.04)',
+          flexWrap: 'wrap',
+          textAlign: 'center'
+        }}>
+          <span>🛸 ISS • <strong style={{ color: 'rgba(255,255,255,0.4)' }}>WhereTheISS.at</strong></span>
+          <span>🌤️ Weather • <strong style={{ color: 'rgba(255,255,255,0.4)' }}>Open-Meteo</strong></span>
+          <span>🪐 Planets • <strong style={{ color: 'rgba(255,255,255,0.4)' }}>Astronomy Engine</strong></span>
+          <span>🛰️ Satellites • <strong style={{ color: 'rgba(255,255,255,0.4)' }}>CelesTrak TLE</strong></span>
         </div>
       </div>
     </section>

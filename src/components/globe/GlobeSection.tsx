@@ -55,6 +55,9 @@ function GlobeInner({ width, height }: { width: number; height: number }) {
         pointRadius={(d: object) => (d as MarkerType).type === 'iss' ? 0.9 : 0.55}
         pointLabel="label"
         onPointClick={(point: object) => setSelected(point as MarkerType)}
+        onGlobeClick={({ lat, lng }) => {
+          setSelected({ lat, lng, label: `Coordinates: ${lat.toFixed(2)}°, ${lng.toFixed(2)}°`, color: '#A78BFA' });
+        }}
         width={width}
         height={height}
         enablePointerInteraction
@@ -103,7 +106,14 @@ function GlobeInner({ width, height }: { width: number; height: number }) {
             </div>
           ) : (
             <button
-              onClick={() => setSelected(null)}
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+                    detail: { lat: selected.lat, lng: selected.lng, label: selected.label }
+                  }));
+                }
+                setSelected(null);
+              }}
               style={{
                 width: '100%',
                 marginTop: '0.875rem',
