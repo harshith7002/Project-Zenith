@@ -248,9 +248,17 @@ function Planet({
 }
 
 // Camera manager to smoothly interpolation position & target on click
-function SolarSystemCameraManager({ selectedPlanet }: { selectedPlanet: string | null }) {
+function SolarSystemCameraManager({ selectedPlanet, isFullscreen }: { selectedPlanet: string | null; isFullscreen: boolean }) {
   const { camera } = useThree();
   const currentTarget = useRef(new THREE.Vector3(0, 0, 0));
+
+  useEffect(() => {
+    const projCam = camera as THREE.PerspectiveCamera;
+    if (projCam && projCam.isPerspectiveCamera) {
+      projCam.fov = isFullscreen ? 55 : 62;
+      projCam.updateProjectionMatrix();
+    }
+  }, [isFullscreen, camera]);
 
   useFrame(({ clock }) => {
     if (selectedPlanet) {
@@ -281,7 +289,9 @@ function SolarSystemCameraManager({ selectedPlanet }: { selectedPlanet: string |
       currentTarget.current.lerp(targetPos, 0.05);
       camera.lookAt(currentTarget.current);
 
-      const defaultCameraPos = new THREE.Vector3(0, 30, 70);
+      const defaultCameraPos = isFullscreen 
+        ? new THREE.Vector3(0, 30, 70) 
+        : new THREE.Vector3(0, 38, 88);
       camera.position.lerp(defaultCameraPos, 0.05);
     }
   });
@@ -320,7 +330,7 @@ export default function SolarSystem() {
   }, []);
 
   return (
-    <section className="solar-section" id="solar">
+    <section className="solar-system-section" id="solar" style={{ padding: '6rem 0' }}>
       <div className="section-container">
         <motion.div
           className="section-header"
@@ -338,81 +348,86 @@ export default function SolarSystem() {
             Interact with all 8 planets in real-time 3D. Drag to rotate, scroll to zoom. Click a planet to inspect it.
           </p>
         </motion.div>
-      </div>
 
-      {/* 3D Canvas */}
-      <div 
-        ref={containerRef} 
-        className="solar-canvas-wrap" 
-        style={{ 
-          position: 'relative', 
-          height: isFullscreen ? '100vh' : undefined,
-          background: isFullscreen ? '#000' : undefined
-        }}
-      >
-        <button
-          onClick={toggleFullscreen}
-          style={{
-            position: 'absolute',
-            top: '1rem',
-            right: '1rem',
-            zIndex: 35,
-            background: 'rgba(5, 8, 22, 0.75)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: '#A78BFA',
-            borderRadius: '0.5rem',
-            padding: '0.4rem 0.75rem',
-            fontSize: '0.75rem',
-            cursor: 'pointer',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.35rem',
-            transition: 'all 0.2s',
-            backdropFilter: 'blur(8px)',
-            pointerEvents: 'auto'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(124, 58, 237, 0.2)';
-            e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.4)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(5, 8, 22, 0.75)';
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+        {/* 3D Canvas */}
+        <div 
+          ref={containerRef} 
+          className="solar-canvas-wrap" 
+          style={{ 
+            position: 'relative', 
+            height: isFullscreen ? '100vh' : '380px',
+            background: '#000',
+            borderRadius: isFullscreen ? '0' : '1.5rem',
+            border: isFullscreen ? 'none' : '1px solid rgba(255, 255, 255, 0.05)',
+            boxShadow: isFullscreen ? 'none' : '0 20px 40px rgba(0,0,0,0.55)',
+            overflow: 'hidden',
+            marginTop: '2.5rem',
+            marginBottom: '2rem'
           }}
         >
-          {isFullscreen ? '🔍 Exit Fullscreen' : '🔍 Fullscreen Orbit View'}
-        </button>
+          <button
+            onClick={toggleFullscreen}
+            style={{
+              position: 'absolute',
+              top: '1rem',
+              right: '1rem',
+              zIndex: 35,
+              background: 'rgba(5, 8, 22, 0.75)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              color: '#A78BFA',
+              borderRadius: '0.5rem',
+              padding: '0.4rem 0.75rem',
+              fontSize: '0.75rem',
+              cursor: 'pointer',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              transition: 'all 0.2s',
+              backdropFilter: 'blur(8px)',
+              pointerEvents: 'auto'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(124, 58, 237, 0.2)';
+              e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(5, 8, 22, 0.75)';
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+            }}
+          >
+            {isFullscreen ? '🔍 Exit Fullscreen' : '🔍 Fullscreen Orbit View'}
+          </button>
 
-        <Canvas
-          camera={{ position: [0, 30, 70], fov: 55 }}
-          gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
-          style={{ background: 'transparent', width: '100%', height: '100%' }}
-        >
-          <color attach="background" args={['#000000']} />
-          <ambientLight intensity={0.28} />
-          <directionalLight position={[-15, 20, -10]} intensity={1.8} color="#7c3aed" />
-          
-          {/* Subtle star particles background */}
-          <Stars radius={250} depth={40} count={3500} factor={4} saturation={0.5} fade speed={0.4} />
+          <Canvas
+            camera={{ position: [0, 38, 88], fov: isFullscreen ? 55 : 62 }}
+            gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+            style={{ background: 'transparent', width: '100%', height: '100%' }}
+          >
+            <color attach="background" args={['#000000']} />
+            <ambientLight intensity={0.28} />
+            <directionalLight position={[-15, 20, -10]} intensity={1.8} color="#7c3aed" />
+            
+            {/* Subtle star particles background */}
+            <Stars radius={250} depth={40} count={3500} factor={4} saturation={0.5} fade speed={0.4} />
 
-          <Sun />
-          <SunCorona />
+            <Sun />
+            <SunCorona />
 
-          {PLANET_DATA.map((p) => (
-            <Planet 
-              key={p.name} 
-              {...p} 
-              hasRings={'hasRings' in p ? p.hasRings : false} 
-              onSelectPlanet={setSelectedPlanet}
-              isSelected={selectedPlanet === p.name}
-            />
-          ))}
+            {PLANET_DATA.map((p) => (
+              <Planet 
+                key={p.name} 
+                {...p} 
+                hasRings={'hasRings' in p ? p.hasRings : false} 
+                onSelectPlanet={setSelectedPlanet}
+                isSelected={selectedPlanet === p.name}
+              />
+            ))}
 
-          <AsteroidBelt />
+            <AsteroidBelt />
 
-          {/* Dynamic Programmatic Camera Controller */}
-          <SolarSystemCameraManager selectedPlanet={selectedPlanet} />
+            {/* Dynamic Programmatic Camera Controller */}
+            <SolarSystemCameraManager selectedPlanet={selectedPlanet} isFullscreen={isFullscreen} />
 
           <OrbitControls
             enablePan={false}
@@ -475,6 +490,7 @@ export default function SolarSystem() {
           </div>
         ))}
       </div>
+    </div>
 
       {/* Cosmic Story Mode Modal */}
       <AnimatePresence>
