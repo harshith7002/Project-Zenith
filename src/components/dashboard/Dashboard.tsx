@@ -1334,6 +1334,28 @@ export default function Dashboard() {
       return;
     }
 
+    // Cache-First: Optimistically load from localStorage for instant response
+    let cachedCoords: { lat: number; lng: number; label: string } | null = null;
+    try {
+      const stored = localStorage.getItem('zenith_last_coords');
+      if (stored) {
+        cachedCoords = JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error("Failed to parse cached coordinates", e);
+    }
+
+    if (cachedCoords) {
+      console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] Optimistic Cache-Hit: Using stored coordinates`);
+      // Update UI immediately with cached coordinates
+      setObserverCoords(cachedCoords);
+      window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+        detail: { lat: cachedCoords.lat, lng: cachedCoords.lng, label: cachedCoords.label, source: 'use-my-location' }
+      }));
+    }
+
+    const finalCachedCoords = cachedCoords;
+
     // Wrap navigator.geolocation.getCurrentPosition in a Promise
     const getPosition = (options: PositionOptions): Promise<GeolocationPosition> => {
       return new Promise((resolve, reject) => {
@@ -1342,10 +1364,11 @@ export default function Dashboard() {
     };
 
     try {
+      // Use maximumAge: Infinity to leverage browser cache instantly (often resolves in <10ms)
       const position = await getPosition({
         enableHighAccuracy: false,
-        timeout: 5000,
-        maximumAge: 300000
+        timeout: 3000,
+        maximumAge: Infinity
       });
 
       const geoReturn = performance.now();
@@ -1364,29 +1387,44 @@ export default function Dashboard() {
       const { latitude, longitude } = position.coords;
       const latStr = latitude.toFixed(2);
       const lngStr = longitude.toFixed(2);
-      const tempLabel = `Updating... (${latStr}°, ${lngStr}°)`;
       
+      // Check if coordinates changed significantly from cache (threshold of ~1km / 0.01 degrees)
+      const isNewLocation = !finalCachedCoords || 
+        Math.abs(finalCachedCoords.lat - latitude) > 0.01 || 
+        Math.abs(finalCachedCoords.lng - longitude) > 0.01;
+
+      const tempLabel = isNewLocation 
+        ? `Updating... (${latStr}°, ${lngStr}°)` 
+        : finalCachedCoords.label;
+
       setToastMessage(`🌍 Updating observation point...`);
       setWeatherLoading(true);
-      setIsDetecting(false); // Enable button once coordinates have arrived
+      setIsDetecting(false); // Enable button
 
-      // 1. Immediately update observerCoords state (Header)
-      setObserverCoords({ lat: latitude, lng: longitude, label: tempLabel });
-      
-      const headerUpdateTime = performance.now() - clickTime;
-      console.log(`[Visual Log] [${headerUpdateTime.toFixed(2)}ms] HEADER UPDATED`);
+      if (isNewLocation) {
+        // Update header and fly globe immediately
+        setObserverCoords({ lat: latitude, lng: longitude, label: tempLabel });
+        
+        const headerUpdateTime = performance.now() - clickTime;
+        console.log(`[Visual Log] [${headerUpdateTime.toFixed(2)}ms] HEADER UPDATED`);
 
-      // 2. Immediately fly the camera
-      window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
-        detail: { lat: latitude, lng: longitude, label: tempLabel, source: 'use-my-location' }
-      }));
-      console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] GLOBE UPDATED`);
+        window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+          detail: { lat: latitude, lng: longitude, label: tempLabel, source: 'use-my-location' }
+        }));
+        console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] GLOBE UPDATED`);
+      } else {
+        console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] Coordinates match cache. Skipping redundant UI repaint.`);
+      }
+
       console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] WEATHER STARTED`);
 
-      // 3. Fire geocoding and weather fetch concurrently in parallel using Promise.all
+      // Fire geocoding and weather fetch concurrently in parallel using Promise.all
       const [geocodeResult] = await Promise.all([
         // Task A: Nominatim Reverse Geocoding
         (async () => {
+          if (!isNewLocation && finalCachedCoords) {
+            return finalCachedCoords.label;
+          }
           try {
             const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=en`, {
               headers: { 'User-Agent': 'ZenithApp/1.0' }
@@ -1398,8 +1436,11 @@ export default function Dashboard() {
                 const city = address.city || address.town || address.village || address.suburb || address.county || '';
                 const country = address.country || '';
                 if (city && country) {
-                  return `${city}, ${country}`;
+                  const labelStr = `${city}, ${country}`;
+                  localStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: labelStr }));
+                  return labelStr;
                 } else if (country) {
+                  localStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: country }));
                   return country;
                 }
               }
@@ -1407,7 +1448,9 @@ export default function Dashboard() {
           } catch (e) {
             console.error("Reverse geocoding failed", e);
           }
-          return `My Location (${latStr}°, ${lngStr}°)`;
+          const fallbackLabel = `My Location (${latStr}°, ${lngStr}°)`;
+          localStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: fallbackLabel }));
+          return fallbackLabel;
         })(),
 
         // Task B: Open-Meteo Weather Fetching (or cache load)
@@ -1466,7 +1509,11 @@ export default function Dashboard() {
     } catch (error) {
       setIsDetecting(false);
       setWeatherLoading(false);
-      setToastMessage(`Location permission denied or timed out. Continuing with default observation point.`);
+      if (cachedCoords) {
+        setToastMessage(`Unable to update current coordinates. Staying on cached location.`);
+      } else {
+        setToastMessage(`Location permission denied or timed out. Continuing with default observation point.`);
+      }
       console.error("Geolocation request failed", error);
     }
   };
