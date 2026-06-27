@@ -247,11 +247,18 @@ function predictNextISSPass(obsLat: number, obsLng: number, tleLine1: string, tl
 // Wrapper to track mouse and assign CSS variables for glowing glassmorphism spotlight
 function GlassSpotlightCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const rectRef = useRef<DOMRect | null>(null);
+
+  const handleMouseEnter = () => {
+    if (cardRef.current) {
+      rectRef.current = cardRef.current.getBoundingClientRect();
+    }
+  };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const card = cardRef.current;
-    if (!card) return;
-    const rect = card.getBoundingClientRect();
+    if (!card || !rectRef.current) return;
+    const rect = rectRef.current;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     card.style.setProperty('--mouse-x', `${x}px`);
@@ -261,6 +268,7 @@ function GlassSpotlightCard({ children, className = '' }: { children: React.Reac
   return (
     <div
       ref={cardRef}
+      onMouseEnter={handleMouseEnter}
       onMouseMove={handleMouseMove}
       className={`dashboard-card glass-card ${className}`}
       style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}

@@ -5,11 +5,18 @@ import { TIMELINE_STEPS } from '@/lib/constants';
 
 function TimelineSpotlightCard({ item }: { item: typeof TIMELINE_STEPS[number] }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const rectRef = useRef<DOMRect | null>(null);
+
+  const handleMouseEnter = () => {
+    if (cardRef.current) {
+      rectRef.current = cardRef.current.getBoundingClientRect();
+    }
+  };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const card = cardRef.current;
-    if (!card) return;
-    const rect = card.getBoundingClientRect();
+    if (!card || !rectRef.current) return;
+    const rect = rectRef.current;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     card.style.setProperty('--mouse-x', `${x}px`);
@@ -19,6 +26,7 @@ function TimelineSpotlightCard({ item }: { item: typeof TIMELINE_STEPS[number] }
   return (
     <div
       ref={cardRef}
+      onMouseEnter={handleMouseEnter}
       onMouseMove={handleMouseMove}
       className="timeline-card glass-card"
       style={{ position: 'relative', overflow: 'hidden' }}
