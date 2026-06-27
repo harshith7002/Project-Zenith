@@ -2104,7 +2104,7 @@ export default function Dashboard() {
   }, [issCountdown]);
 
   return (
-    <section className="dashboard-section" id="dashboard" style={{ position: 'relative', scrollMarginTop: '6.5rem' }}>
+    <section className="dashboard-section" id="dashboard" style={{ position: 'relative', scrollMarginTop: '8.5rem' }}>
       {/* Top divider glow */}
       <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '60%', maxWidth: 700, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(124,58,237,0.5), rgba(6,182,212,0.5), transparent)' }} />
       <div className="glow-blob" style={{ width: 600, height: 600, top: '-10%', right: '-5%', background: 'radial-gradient(circle, rgba(6,182,212,0.06), transparent 65%)' }} />

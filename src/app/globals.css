@@ -519,8 +519,9 @@ body {
 /* Dashboard Section */
 .dashboard-section {
   background-color: transparent;
-  padding-top: 6rem;
+  padding-top: 9.5rem;
   padding-bottom: 6rem;
+  margin-top: -3.5rem;
   overflow: hidden;
 }
 
