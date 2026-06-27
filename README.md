@@ -22,7 +22,7 @@
 
 Project Zenith lets users select any point on Earth and instantly discover satellites, planets, constellations, and the ISS currently overhead using real astronomical calculations and live telemetry.
 
-![Project Zenith Web Application](public/screenshots/hero_earth.png)
+![Project Zenith Web Application]
 
 ### Telemetry & Data Pipeline
 
