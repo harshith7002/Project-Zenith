@@ -104,7 +104,7 @@ export default function Footer() {
         {/* Bottom */}
         <div className="footer-bottom">
           <p className="footer-copyright">
-            © 2025 Project Zenith. Built with ♥ by Harshith and Risheek for astronomy enthusiasts worldwide.
+            © 2026 Project Zenith. Built with ♥ by Harshith and Risheek for astronomy enthusiasts worldwide.
           </p>
           <p className="footer-quote">
             &ldquo;Bringing the infinite cosmos within a single browser tab.&rdquo;

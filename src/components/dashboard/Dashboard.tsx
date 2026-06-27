@@ -1,5 +1,5 @@
 'use client';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState, useRef } from 'react';
 import * as Astronomy from 'astronomy-engine';
 import * as satellite from 'satellite.js';
@@ -647,6 +647,18 @@ function AISpaceGuideCard({
   const [isTyping, setIsTyping] = useState(false);
   const [inputText, setInputText] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [aiPlaceholder, setAiPlaceholder] = useState('Ask your AI guide...');
+
+  useEffect(() => {
+    const placeholders = [
+      "Ask about tonight's sky...",
+      "When is the ISS visible?",
+      "Which planets are overhead?",
+      "Is tonight good for observation?"
+    ];
+    const randomIndex = Math.floor(Math.random() * placeholders.length);
+    setAiPlaceholder(placeholders[randomIndex]);
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -852,7 +864,7 @@ function AISpaceGuideCard({
         <form onSubmit={handleSend} style={{ display: 'flex', gap: '0.375rem', marginTop: 'auto' }}>
           <input
             type="text"
-            placeholder="Ask your AI guide..."
+            placeholder={aiPlaceholder}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             disabled={isTyping}
@@ -1002,16 +1014,50 @@ export default function Dashboard() {
   const [bortle, setBortle] = useState(4);
   const [moonBrightness, setMoonBrightness] = useState(8);
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Clear toast after timeout
+  useEffect(() => {
+    if (toastMessage) {
+      const t = setTimeout(() => setToastMessage(null), 2500);
+      return () => clearTimeout(t);
+    }
+  }, [toastMessage]);
+
+  // Geolocation trigger on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          const label = `My Location (${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`;
+          setObserverCoords({ lat: latitude, lng: longitude, label });
+          setToastMessage(`Now showing the sky above ${label}`);
+          
+          window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+            detail: { lat: latitude, lng: longitude, label }
+          }));
+        },
+        () => {
+          console.log("Geolocation permission not active, fallback to Nagpur observer point default.");
+        },
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 86400000 }
+      );
+    }
+  }, []);
+
   // 1. Listen for global coordinate changes from the Globe
   useEffect(() => {
     const handleCoordinateChange = (e: Event) => {
       const customEvent = e as CustomEvent<{ lat: number; lng: number; label: string }>;
       if (customEvent.detail) {
+        const cleanedLabel = customEvent.detail.label.replace('Coordinates: ', '').replace(' Meridian', '');
         setObserverCoords({
           lat: customEvent.detail.lat,
           lng: customEvent.detail.lng,
-          label: customEvent.detail.label || `${customEvent.detail.lat.toFixed(2)}°, ${customEvent.detail.lng.toFixed(2)}°`
+          label: cleanedLabel
         });
+        setToastMessage(`Now showing the sky above ${cleanedLabel}`);
       }
     };
 
@@ -1383,7 +1429,9 @@ export default function Dashboard() {
               <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#4ADE80', letterSpacing: '0.08em' }}>All Systems Nominal</span>
             </div>
             <span style={{ color: 'rgba(255,255,255,0.15)' }} className="hidden md:inline">|</span>
-            <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>📍 {observerCoords.label} Meridian</span>
+            <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>
+              🌍 Current Observation Point: <strong style={{ color: '#fff', fontWeight: 600 }}>{observerCoords.label}</strong>
+            </span>
           </div>
           <div className="dashboard-status-bar-right" style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', position: 'relative', zIndex: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
@@ -1525,6 +1573,45 @@ export default function Dashboard() {
           <span>🛰️ Satellites • <strong style={{ color: 'rgba(255,255,255,0.4)' }}>CelesTrak TLE</strong></span>
         </div>
       </div>
+
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            style={{
+              position: 'fixed',
+              bottom: '2rem',
+              right: '2rem',
+              zIndex: 10000,
+              background: 'rgba(5, 8, 22, 0.95)',
+              border: '1px solid rgba(6, 182, 212, 0.4)',
+              boxShadow: '0 0 20px rgba(6, 182, 212, 0.25)',
+              backdropFilter: 'blur(20px)',
+              padding: '1rem 1.5rem',
+              borderRadius: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              color: '#fff',
+              maxWidth: '350px',
+              pointerEvents: 'auto'
+            }}
+            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <span style={{ fontSize: '1.25rem' }}>📍</span>
+            <div>
+              <h4 style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#38D1F0', margin: 0, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                Observation Point Updated
+              </h4>
+              <p style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.85)', margin: '0.15rem 0 0 0', lineHeight: 1.3 }}>
+                {toastMessage}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 }

@@ -18,6 +18,38 @@
 
 ---
 
+### Product Introduction
+
+Project Zenith lets users select any point on Earth and instantly discover satellites, planets, constellations, and the ISS currently overhead using real astronomical calculations and live telemetry.
+
+![Project Zenith Web Application](public/screenshots/hero_earth.png)
+
+### Telemetry & Data Pipeline
+
+```
+Observer Location
+      │
+      ▼
+  Open-Meteo (Weather API)
+      │
+      ▼
+ WhereTheISS (ISS Telemetry)
+      │
+      ▼
+  CelesTrak (Satellite TLE data)
+      │
+      ▼
+ Astronomy Engine (Topocentric calculations)
+      │
+      ▼
+ SGP4 Propagation (Satellite orbital coordinates)
+      │
+      ▼
+Mission Control Dashboard (HUD display widgets)
+```
+
+---
+
 > A cinematic, real-time cosmic radar that tracks satellites, celestial bodies, and space events — built with custom WebGL shaders, React Three Fiber, and live space APIs. Designed to deliver a smooth, highly optimized experience targeting 60 FPS on modern browsers.
 
 ---
