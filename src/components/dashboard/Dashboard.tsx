@@ -328,6 +328,8 @@ function DashboardValueCounter({ value, decimals = 1, suffix = '' }: { value: nu
 
 // Radar SVG widget displaying real satellites
 function RadarWidget({ satellites }: { satellites: VisibleSatellite[] }) {
+  const [hoveredSat, setHoveredSat] = useState<VisibleSatellite | null>(null);
+
   const blips = satellites.map((sat) => {
     const el = sat.altitude;
     const az = sat.azimuth;
@@ -350,12 +352,41 @@ function RadarWidget({ satellites }: { satellites: VisibleSatellite[] }) {
       cy,
       color,
       r: sat.name.includes('ISS') ? 4 : 3,
-      label: sat.name.split(' ')[0]
+      label: sat.name.split(' ')[0],
+      sat
     };
   });
 
   return (
     <div style={{ position: 'relative', width: 190, height: 190, margin: '0.5rem auto' }}>
+      {hoveredSat && (
+        <div style={{
+          position: 'absolute',
+          top: '-2.75rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(5, 8, 22, 0.95)',
+          border: '1px solid rgba(6, 182, 212, 0.4)',
+          borderRadius: '0.5rem',
+          padding: '0.35rem 0.55rem',
+          fontSize: '0.625rem',
+          zIndex: 40,
+          color: '#fff',
+          boxShadow: '0 0 10px rgba(6, 182, 212, 0.2)',
+          pointerEvents: 'none',
+          whiteSpace: 'nowrap',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.05rem',
+          textAlign: 'center'
+        }}>
+          <strong style={{ color: '#06B6D4' }}>{hoveredSat.name}</strong>
+          <span style={{ color: 'rgba(255,255,255,0.7)' }}>
+            Alt: {hoveredSat.height.toFixed(0)} km | Vel: {Math.sqrt(398600.44 / (6371 + hoveredSat.height)).toFixed(2)} km/s
+          </span>
+        </div>
+      )}
+
       <svg viewBox="0 0 200 200" width="100%" height="100%">
         <defs>
           <radialGradient id="radarGrad" cx="50%" cy="50%" r="50%">
@@ -381,7 +412,12 @@ function RadarWidget({ satellites }: { satellites: VisibleSatellite[] }) {
 
         {/* Blips */}
         {blips.map((b, i) => (
-          <g key={i}>
+          <g 
+            key={i}
+            onMouseEnter={() => setHoveredSat(b.sat)}
+            onMouseLeave={() => setHoveredSat(null)}
+            style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+          >
             <circle cx={b.cx} cy={b.cy} r={b.r} fill={b.color} opacity="0.9" />
             <circle cx={b.cx} cy={b.cy} r={b.r}>
               <animate attributeName="r" from={b.r} to={b.r * 4.0} dur={`${1.6 + i * 0.4}s`} repeatCount="indefinite" />
@@ -455,6 +491,8 @@ function SkyQualityScoreCard({
   moonBrightness, setMoonBrightness,
   astronomyScore, color
 }: SkyQualityScoreCardProps) {
+  const [showScoreInfo, setShowScoreInfo] = useState(false);
+
   return (
     <GlassSpotlightCard>
       <div className="dashboard-card-header">
@@ -532,8 +570,61 @@ function SkyQualityScoreCard({
       </div>
 
       <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.375rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Observation Quality</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.375rem', alignItems: 'center', position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Observation Quality</span>
+            <div 
+              onMouseEnter={() => setShowScoreInfo(true)}
+              onMouseLeave={() => setShowScoreInfo(false)}
+              style={{
+                fontSize: '0.625rem',
+                color: 'rgba(255,255,255,0.35)',
+                cursor: 'help',
+                background: 'rgba(255,255,255,0.08)',
+                borderRadius: '50%',
+                width: '13px',
+                height: '13px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                pointerEvents: 'auto'
+              }}
+            >
+              ⓘ
+            </div>
+
+            {showScoreInfo && (
+              <div style={{
+                position: 'absolute',
+                bottom: '1.75rem',
+                left: '0',
+                width: '210px',
+                background: 'rgba(5, 8, 22, 0.95)',
+                border: '1px solid rgba(124, 58, 237, 0.4)',
+                borderRadius: '0.5rem',
+                padding: '0.5rem 0.75rem',
+                fontSize: '0.6875rem',
+                zIndex: 40,
+                color: 'rgba(255,255,255,0.9)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.2rem',
+                lineHeight: '1.25'
+              }}>
+                <strong style={{ color: '#C4B5FD', display: 'block', marginBottom: '0.15rem' }}>Viewing Formula Breakdown:</strong>
+                <div>• Cloud Cover: <span style={{ color: '#EF4444' }}>-{Math.round(cloudCover * 0.45)}</span> points</div>
+                <div>• Humidity (ideal &lt;40%): <span style={{ color: '#EF4444' }}>-{Math.round(Math.max(0, humidity - 40) * 0.25)}</span> points</div>
+                <div>• Light Pollution: <span style={{ color: '#EF4444' }}>-{Math.round((bortle - 1) * 6.0)}</span> points</div>
+                <div>• Moon Glow: <span style={{ color: '#EF4444' }}>-{Math.round(moonBrightness * 0.2)}</span> points</div>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: '0.25rem', paddingTop: '0.25rem', fontWeight: 'bold' }}>
+                  Total Deduction: <span style={{ color: '#F59E0B' }}>-{100 - astronomyScore}</span> points
+                </div>
+              </div>
+            )}
+          </div>
           <span style={{ fontSize: '0.9375rem', color: '#fff', fontWeight: 800 }}>
             Score: <span style={{ color }}>{astronomyScore}</span>/100
           </span>
@@ -549,6 +640,144 @@ function SkyQualityScoreCard({
         </p>
       </div>
     </GlassSpotlightCard>
+  );
+}
+
+function SkyChart({ objects }: { objects: VisibleObject[] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, 150, 150);
+
+    ctx.beginPath();
+    ctx.arc(75, 75, 68, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(5, 8, 22, 0.6)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(124, 58, 237, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '7px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', 75, 12);
+    ctx.fillText('S', 75, 138);
+    ctx.fillText('E', 138, 75);
+    ctx.fillText('W', 12, 75);
+
+    ctx.beginPath();
+    ctx.arc(75, 75, 45, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(124, 58, 237, 0.1)';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(75, 75, 22, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(75, 75, 1.5, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(6, 182, 212, 0.4)';
+    ctx.fill();
+
+    const visibleConstellations = objects.filter(o => o.type === 'Constellation');
+
+    const constellationsStars: Record<string, { dx: number; dy: number }[]> = {
+      'Ursa Major': [
+        { dx: -20, dy: -10 }, { dx: -10, dy: -12 }, { dx: 0, dy: -5 },
+        { dx: 5, dy: 5 }, { dx: 15, dy: 5 }, { dx: 15, dy: 15 },
+        { dx: 5, dy: 15 }, { dx: 5, dy: 5 }
+      ],
+      'Orion': [
+        { dx: -10, dy: -15 }, { dx: 10, dy: -15 },
+        { dx: -5, dy: 0 }, { dx: 0, dy: 0 }, { dx: 5, dy: 0 },
+        { dx: -8, dy: 15 }, { dx: 8, dy: 15 },
+        { dx: -10, dy: -15 }, { dx: -8, dy: 15 },
+        { dx: 10, dy: -15 }, { dx: 8, dy: 15 }
+      ],
+      'Cassiopeia': [
+        { dx: -15, dy: -5 }, { dx: -7, dy: 5 }, { dx: 0, dy: -5 },
+        { dx: 7, dy: 5 }, { dx: 15, dy: -5 }
+      ],
+      'Taurus': [
+        { dx: -12, dy: -10 }, { dx: -4, dy: -2 }, { dx: 4, dy: 2 },
+        { dx: 12, dy: 10 }, { dx: 4, dy: 2 }, { dx: 0, dy: 10 }
+      ],
+      'Leo': [
+        { dx: -15, dy: 5 }, { dx: -5, dy: 5 }, { dx: 5, dy: 0 },
+        { dx: 10, dy: -10 }, { dx: 5, dy: -15 }, { dx: 0, dy: -10 },
+        { dx: -5, dy: 5 }, { dx: -10, dy: -10 }
+      ],
+      'Cygnus': [
+        { dx: 0, dy: -15 }, { dx: 0, dy: 15 },
+        { dx: -15, dy: 0 }, { dx: 15, dy: 0 }
+      ],
+      'Pegasus': [
+        { dx: -10, dy: -10 }, { dx: 10, dy: -10 },
+        { dx: 10, dy: 10 }, { dx: -10, dy: 10 },
+        { dx: -10, dy: -10 }
+      ]
+    };
+
+    visibleConstellations.forEach(c => {
+      const alt = c.altitude;
+      const az = c.azimuth;
+      const r = 60 * (90 - alt) / 90;
+      const rad = (az * Math.PI) / 180;
+      const cx = 75 + r * Math.sin(rad);
+      const cy = 75 - r * Math.cos(rad);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.font = '6px monospace';
+      ctx.fillText(c.name, cx, cy - 8);
+
+      const stars = constellationsStars[c.name] || [
+        { dx: -5, dy: -5 }, { dx: 5, dy: -5 }, { dx: 5, dy: 5 }, { dx: -5, dy: 5 }
+      ];
+
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)';
+      ctx.lineWidth = 1;
+      stars.forEach((star, idx) => {
+        const sx = cx + star.dx * 0.45;
+        const sy = cy + star.dy * 0.45;
+        if (idx === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.stroke();
+
+      stars.forEach(star => {
+        const sx = cx + star.dx * 0.45;
+        const sy = cy + star.dy * 0.45;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.2, 0, 2 * Math.PI);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+      });
+    });
+  }, [objects]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+      <span style={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.45)', fontWeight: 650, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        🌌 Constellation Overlay
+      </span>
+      <canvas 
+        ref={canvasRef} 
+        width={150} 
+        height={150} 
+        style={{ 
+          background: 'radial-gradient(circle, rgba(12,10,32,0.6) 0%, rgba(3,2,10,0.9) 100%)',
+          borderRadius: '50%',
+          border: '1px solid rgba(124, 58, 237, 0.2)' 
+        }} 
+      />
+    </div>
   );
 }
 
@@ -602,6 +831,8 @@ function VisibleObjectsCard({ objects }: { objects: VisibleObject[] }) {
           </div>
         )}
       </div>
+
+      <SkyChart objects={objects} />
     </GlassSpotlightCard>
   );
 }

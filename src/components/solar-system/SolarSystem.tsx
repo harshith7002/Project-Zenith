@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useMemo, useState } from 'react';
+import { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -291,6 +291,33 @@ function SolarSystemCameraManager({ selectedPlanet }: { selectedPlanet: string |
 
 export default function SolarSystem() {
   const [selectedPlanet, setSelectedPlanet] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error("Error entering fullscreen", err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      }).catch((err) => {
+        console.error("Error exiting fullscreen", err);
+      });
+    }
+  };
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
 
   return (
     <section className="solar-section" id="solar">
@@ -314,7 +341,49 @@ export default function SolarSystem() {
       </div>
 
       {/* 3D Canvas */}
-      <div className="solar-canvas-wrap" style={{ position: 'relative' }}>
+      <div 
+        ref={containerRef} 
+        className="solar-canvas-wrap" 
+        style={{ 
+          position: 'relative', 
+          height: isFullscreen ? '100vh' : undefined,
+          background: isFullscreen ? '#000' : undefined
+        }}
+      >
+        <button
+          onClick={toggleFullscreen}
+          style={{
+            position: 'absolute',
+            top: '1rem',
+            right: '1rem',
+            zIndex: 35,
+            background: 'rgba(5, 8, 22, 0.75)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: '#A78BFA',
+            borderRadius: '0.5rem',
+            padding: '0.4rem 0.75rem',
+            fontSize: '0.75rem',
+            cursor: 'pointer',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            transition: 'all 0.2s',
+            backdropFilter: 'blur(8px)',
+            pointerEvents: 'auto'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(124, 58, 237, 0.2)';
+            e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.4)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(5, 8, 22, 0.75)';
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+          }}
+        >
+          {isFullscreen ? '🔍 Exit Fullscreen' : '🔍 Fullscreen Orbit View'}
+        </button>
+
         <Canvas
           camera={{ position: [0, 30, 70], fov: 55 }}
           gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
