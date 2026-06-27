@@ -5,6 +5,15 @@ import * as Astronomy from 'astronomy-engine';
 import * as satellite from 'satellite.js';
 import { FALLBACK_TLE_DATA } from '@/lib/tleData';
 
+interface ZenithPerfMetrics {
+  clickTime: number;
+  geoTime: number;
+  weatherTime: number;
+  astronomyTime: number;
+  sgpTime: number;
+  aiTime: number;
+}
+
 interface ISSData {
   latitude: number;
   longitude: number;
@@ -898,6 +907,7 @@ function AISpaceGuideCard({
   useEffect(() => {
     // Generate initial bot greeting message once when data becomes available
     const generateWelcomeMessage = () => {
+      const startAi = performance.now();
       const loc = observerCoords.label;
       const score = astronomyScore;
       
@@ -930,6 +940,32 @@ function AISpaceGuideCard({
         { sender: 'bot', text: 'Hello! I am your AI Space Guide. Ask me anything about what is visible in the sky above you right now.' },
         { sender: 'bot', text: summary }
       ]);
+
+      if (typeof window !== 'undefined') {
+        const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+        if (perf && perf.clickTime > 0) {
+          perf.aiTime = performance.now() - startAi;
+          console.log(`[Perf] AI Guide welcome text generation: ${perf.aiTime.toFixed(2)}ms`);
+          console.timeEnd("Total Use My Location Flow");
+          const totalTime = performance.now() - perf.clickTime;
+          
+          console.log("==================================================");
+          console.log("📡 USER METRICS: USE MY LOCATION TELEMETRY SCORECARD");
+          console.log("--------------------------------------------------");
+          console.log(`⏱️ 1. Geolocation API Latency : ${(perf.geoTime - perf.clickTime).toFixed(2)}ms`);
+          console.log(`🗺️ 2. Reverse Geocoding Time  : 0.00ms (Local)`);
+          console.log(`☁️ 3. Open-Meteo Weather Fetch : ${perf.weatherTime > 0 ? perf.weatherTime.toFixed(2) + 'ms' : '0.00ms (Cached)'}`);
+          console.log(`🌌 4. Astronomy Calculations   : ${perf.astronomyTime.toFixed(2)}ms`);
+          console.log(`🛰️ 5. SGP4 Satellite Prop      : ${perf.sgpTime.toFixed(2)}ms`);
+          console.log(`🧠 6. AI Space Guide Gen      : ${perf.aiTime.toFixed(2)}ms`);
+          console.log("--------------------------------------------------");
+          console.log(`🔥 TOTAL DASHBOARD UPDATE TIME : ${totalTime.toFixed(2)}ms`);
+          console.log("==================================================");
+          
+          // Clear clickTime to avoid double logs
+          perf.clickTime = 0;
+        }
+      }
     };
 
     if (combinedVisible.length > 0) {
@@ -1258,12 +1294,38 @@ export default function Dashboard() {
 
   // Geolocation trigger on demand
   const handleUseMyLocation = () => {
+    if (typeof window !== 'undefined') {
+      console.time("Total Use My Location Flow");
+      console.time("Time until Geolocation API returns");
+      (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf = {
+        clickTime: performance.now(),
+        geoTime: 0,
+        weatherTime: 0,
+        astronomyTime: 0,
+        sgpTime: 0,
+        aiTime: 0
+      };
+      console.log("[Perf] Starting 'Use My Location' telemetry instrumentation...");
+    }
+
     setToastMessage('📡 Detecting your location...');
     if (typeof window !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          if (typeof window !== 'undefined') {
+            console.timeEnd("Time until Geolocation API returns");
+            const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+            if (perf) {
+              perf.geoTime = performance.now();
+              console.log(`[Perf] Geolocation API latency: ${(perf.geoTime - perf.clickTime).toFixed(2)}ms`);
+            }
+          }
+
+          const startGeocode = performance.now();
           const { latitude, longitude } = position.coords;
           const label = `My Location (${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`;
+          const geocodeDuration = performance.now() - startGeocode;
+          console.log(`[Perf] Reverse geocoding duration: ${geocodeDuration.toFixed(2)}ms`);
           
           setToastMessage(`🌍 Updating observation point...`);
           setObserverCoords({ lat: latitude, lng: longitude, label });
@@ -1277,6 +1339,10 @@ export default function Dashboard() {
           }, 800);
         },
         () => {
+          if (typeof window !== 'undefined') {
+            console.timeEnd("Time until Geolocation API returns");
+            console.timeEnd("Total Use My Location Flow");
+          }
           setToastMessage(`Location permission denied. Continuing with the default observation point.`);
         },
         { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
@@ -1385,6 +1451,7 @@ export default function Dashboard() {
   useEffect(() => {
     let active = true;
     const propagateAll = () => {
+      const startSgp = performance.now();
       const date = new Date();
       const visibleSats: VisibleSatellite[] = [];
 
@@ -1408,6 +1475,14 @@ export default function Dashboard() {
       });
 
       setVisibleSatsList(visibleSats);
+
+      if (typeof window !== 'undefined') {
+        const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+        if (perf && perf.clickTime > 0 && perf.sgpTime === 0) {
+          perf.sgpTime = performance.now() - startSgp;
+          console.log(`[Perf] SGP4 satellite propagation: ${perf.sgpTime.toFixed(2)}ms`);
+        }
+      }
 
       // Defer the heavy ISS pass prediction calculation to keep coordinate updates responsive
       setTimeout(() => {
@@ -1466,6 +1541,8 @@ export default function Dashboard() {
   useEffect(() => {
     let active = true;
     const fetchWeather = async () => {
+      const startWeather = performance.now();
+      
       // Check cache (within ~10 km / 0.09 degrees and less than 10 minutes old)
       if (
         weatherCache.current &&
@@ -1475,6 +1552,13 @@ export default function Dashboard() {
       ) {
         setCloudCover(weatherCache.current.cloud);
         setHumidity(weatherCache.current.humidity);
+        if (typeof window !== 'undefined') {
+          const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+          if (perf) {
+            perf.weatherTime = performance.now() - startWeather;
+            console.log(`[Perf] Open-Meteo Weather: ${perf.weatherTime.toFixed(2)}ms (CACHED)`);
+          }
+        }
         return;
       }
 
@@ -1495,6 +1579,13 @@ export default function Dashboard() {
               humidity: data.current.relative_humidity_2m,
               timestamp: Date.now()
             };
+          }
+        }
+        if (typeof window !== 'undefined') {
+          const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+          if (perf) {
+            perf.weatherTime = performance.now() - startWeather;
+            console.log(`[Perf] Open-Meteo weather fetch duration: ${perf.weatherTime.toFixed(2)}ms`);
           }
         }
       } catch {
@@ -1550,6 +1641,7 @@ export default function Dashboard() {
 
   // 8. Calculate visible sky objects
   const calculateVisibleObjects = (lat: number, lng: number, date: Date) => {
+    const startAst = performance.now();
     const obs = new Astronomy.Observer(lat, lng, 0);
     const time = Astronomy.MakeTime(date);
 
@@ -1615,6 +1707,14 @@ export default function Dashboard() {
         console.error(e);
       }
     });
+
+    if (typeof window !== 'undefined') {
+      const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+      if (perf && perf.clickTime > 0 && perf.astronomyTime === 0) {
+        perf.astronomyTime = performance.now() - startAst;
+        console.log(`[Perf] Astronomy Engine calculations: ${perf.astronomyTime.toFixed(2)}ms`);
+      }
+    }
 
     return visible;
   };
