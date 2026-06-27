@@ -96,11 +96,21 @@ function GlobeInner({ width, height }: { width: number; height: number }) {
           const pt = point as MarkerType;
           setSelected(pt);
           globeRef.current?.pointOfView({ lat: pt.lat, lng: pt.lng, altitude: 1.8 }, 1200);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+              detail: { lat: pt.lat, lng: pt.lng, label: pt.label }
+            }));
+          }
         }}
         onGlobeClick={({ lat, lng }) => {
           const newSel = { lat, lng, label: `Coordinates: ${lat.toFixed(2)}°, ${lng.toFixed(2)}°`, color: '#A78BFA' };
           setSelected(newSel);
           globeRef.current?.pointOfView({ lat, lng, altitude: 1.8 }, 1200);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+              detail: { lat, lng, label: newSel.label }
+            }));
+          }
         }}
         ringsData={selected ? [selected] : []}
         ringColor={() => '#38D1F0'}
@@ -168,30 +178,20 @@ function GlobeInner({ width, height }: { width: number; height: number }) {
               <p style={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.4)', marginTop: '0.25rem' }}>Alt: ~408 km • Speed: 7.66 km/s</p>
             </div>
           ) : (
-            <button
-              onClick={() => {
-                if (typeof window !== 'undefined') {
-                  window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
-                    detail: { lat: selected.lat, lng: selected.lng, label: selected.label }
-                  }));
-                }
-                setSelected(null);
-              }}
-              style={{
-                width: '100%',
-                marginTop: '0.875rem',
-                padding: '0.5rem',
-                borderRadius: '0.625rem',
-                background: 'rgba(124,58,237,0.15)',
-                border: '1px solid rgba(124,58,237,0.3)',
-                color: '#C4B5FD',
-                fontSize: '0.75rem',
-                cursor: 'pointer',
-                fontWeight: 600,
-              }}
-            >
-              Set as Observation Point
-            </button>
+            <div style={{
+              width: '100%',
+              marginTop: '0.875rem',
+              padding: '0.5rem',
+              borderRadius: '0.625rem',
+              background: 'rgba(74,222,128,0.08)',
+              border: '1px solid rgba(74,222,128,0.2)',
+              color: '#4ADE80',
+              fontSize: '0.725rem',
+              textAlign: 'center',
+              fontWeight: 650,
+            }}>
+              ✓ Telemetry Synchronized
+            </div>
           )}
         </motion.div>
       )}

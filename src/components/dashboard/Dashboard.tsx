@@ -1280,6 +1280,38 @@ export default function Dashboard() {
   const [syncState, setSyncState] = useState<'idle' | 'analyzing' | 'telemetry' | 'locked' | 'ready'>('idle');
   const [utcTime, setUtcTime] = useState('');
 
+  // Search States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<{ display_name: string; lat: number; lon: number }[]>([]);
+
+  // Autocomplete debounced suggestions search
+  useEffect(() => {
+    if (!searchQuery.trim() || searchQuery.trim().length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&accept-language=en`, {
+          headers: { 'User-Agent': 'ZenithApp/1.0' }
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { display_name: string; lat: string; lon: string }[];
+          setSuggestions(data.map((item) => ({
+            display_name: item.display_name,
+            lat: parseFloat(item.lat),
+            lon: parseFloat(item.lon)
+          })));
+        }
+      } catch (e) {
+        console.error("Autocomplete search failed", e);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
   // Trigger telemetry lock-on sequence when observerCoords change
   useEffect(() => {
     setSyncState('analyzing');
@@ -1324,6 +1356,55 @@ export default function Dashboard() {
       return () => clearTimeout(t);
     }
   }, [toastMessage]);
+
+  const handleSelectLocation = (lat: number, lng: number, label: string) => {
+    const cleanedLabel = label.split(',').slice(0, 2).join(',').trim();
+    
+    setWeatherLoading(true);
+    setObserverCoords({ lat, lng, label: cleanedLabel });
+    
+    window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
+      detail: { lat, lng, label: cleanedLabel, source: 'use-my-location' }
+    }));
+    
+    setToastMessage(`✅ Mission Control synchronized`);
+  };
+
+  const handleSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+
+    // Check if query is raw coordinates: e.g. "17.40, 78.37"
+    const coordRegex = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
+    const match = searchQuery.match(coordRegex);
+    if (match) {
+      const lat = parseFloat(match[1]);
+      const lng = parseFloat(match[2]);
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        handleSelectLocation(lat, lng, `Coordinates (${lat.toFixed(2)}°, ${lng.toFixed(2)}°)`);
+        setSearchQuery('');
+        return;
+      }
+    }
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1&accept-language=en`, {
+        headers: { 'User-Agent': 'ZenithApp/1.0' }
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { lat: string; lon: string; display_name: string }[];
+        if (data && data.length > 0) {
+          const item = data[0];
+          handleSelectLocation(parseFloat(item.lat), parseFloat(item.lon), item.display_name);
+          setSearchQuery('');
+        } else {
+          setToastMessage(`❌ Location not found. Please try another city.`);
+        }
+      }
+    } catch {
+      setToastMessage(`❌ Location not found. Please try another city.`);
+    }
+  };
 
   // Geolocation trigger on demand
   const handleUseMyLocation = async () => {
@@ -1554,19 +1635,57 @@ export default function Dashboard() {
         }
         
         const cleanedLabel = customEvent.detail.label.replace('Coordinates: ', '').replace(' Meridian', '');
+        const { lat, lng } = customEvent.detail;
         
         // Prevent duplicate coordinate updates if coordinates match exactly
         setObserverCoords(prev => {
-          if (prev.lat === customEvent.detail.lat && prev.lng === customEvent.detail.lng && prev.label === cleanedLabel) {
+          if (prev.lat === lat && prev.lng === lng && prev.label === cleanedLabel) {
             return prev;
           }
           return {
-            lat: customEvent.detail.lat,
-            lng: customEvent.detail.lng,
+            lat,
+            lng,
             label: cleanedLabel
           };
         });
         setToastMessage(`Now showing the sky above ${cleanedLabel}`);
+
+        // If it is a raw coordinate click, reverse-geocode in the background progressively
+        if (cleanedLabel.includes('Coordinates') || cleanedLabel.includes('°')) {
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=en`, {
+            headers: { 'User-Agent': 'ZenithApp/1.0' }
+          })
+            .then(res => {
+              if (res.ok) return res.json();
+              throw new Error();
+            })
+            .then(data => {
+              const address = data.address;
+              if (data && address) {
+                const city = address.city || address.town || address.village || address.suburb || address.county || '';
+                const country = address.country || '';
+                if (city && country) {
+                  const resolvedLabel = `${city}, ${country}`;
+                  setObserverCoords(prev => {
+                    if (prev.lat === lat && prev.lng === lng) {
+                      return { ...prev, label: resolvedLabel };
+                    }
+                    return prev;
+                  });
+                  setToastMessage(`Now showing the sky above ${resolvedLabel}`);
+                } else if (country) {
+                  setObserverCoords(prev => {
+                    if (prev.lat === lat && prev.lng === lng) {
+                      return { ...prev, label: country };
+                    }
+                    return prev;
+                  });
+                  setToastMessage(`Now showing the sky above ${country}`);
+                }
+              }
+            })
+            .catch(() => { /* fallback coordinates already set */ });
+        }
       }
     };
 
@@ -2023,43 +2142,125 @@ export default function Dashboard() {
               <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#4ADE80', letterSpacing: '0.08em' }}>All Systems Nominal</span>
             </div>
             <span style={{ color: 'rgba(255,255,255,0.15)' }} className="hidden md:inline">|</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>
-                🌍 Current Observation Point: <strong style={{ color: '#fff', fontWeight: 600 }}>{observerCoords.label}</strong>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', flex: 1, minWidth: '280px' }}>
+              <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }} className="hidden lg:inline">
+                🌍 Observation Point:
               </span>
-              <button
-                onClick={handleUseMyLocation}
-                disabled={isDetecting}
-                style={{
-                  background: isDetecting ? 'rgba(255, 255, 255, 0.05)' : 'rgba(124, 58, 237, 0.15)',
-                  border: isDetecting ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(124, 58, 237, 0.3)',
-                  color: isDetecting ? 'rgba(255, 255, 255, 0.4)' : '#C4B5FD',
-                  fontSize: '0.6875rem',
-                  padding: '0.25rem 0.625rem',
-                  borderRadius: '0.5rem',
-                  cursor: isDetecting ? 'not-allowed' : 'pointer',
-                  fontWeight: 650,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.25rem',
-                  transition: 'all 0.2s',
-                  pointerEvents: isDetecting ? 'none' : 'auto'
-                }}
-                onMouseEnter={(e) => {
-                  if (!isDetecting) {
-                    e.currentTarget.style.background = 'rgba(124, 58, 237, 0.3)';
-                    e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.5)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isDetecting) {
-                    e.currentTarget.style.background = 'rgba(124, 58, 237, 0.15)';
-                    e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.3)';
-                  }
-                }}
-              >
-                {isDetecting ? '📍 Detecting...' : '📍 Use My Location'}
-              </button>
+              <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+                <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <span style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>🔍</span>
+                    <input
+                      type="text"
+                      placeholder="Search any city, country, or coordinates..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onBlur={() => {
+                        // Delay clearing suggestions to allow click events to register
+                        setTimeout(() => setSuggestions([]), 200);
+                      }}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '0.5rem',
+                        padding: '0.35rem 0.625rem 0.35rem 1.75rem',
+                        fontSize: '0.75rem',
+                        color: '#fff',
+                        outline: 'none',
+                        transition: 'all 0.2s',
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.border = '1px solid rgba(124, 58, 237, 0.6)';
+                        e.currentTarget.style.boxShadow = '0 0 10px rgba(124, 58, 237, 0.2)';
+                      }}
+                    />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={handleUseMyLocation}
+                    disabled={isDetecting}
+                    title="Use My Location"
+                    style={{
+                      background: isDetecting ? 'rgba(255, 255, 255, 0.05)' : 'rgba(124, 58, 237, 0.15)',
+                      border: isDetecting ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(124, 58, 237, 0.3)',
+                      color: isDetecting ? 'rgba(255, 255, 255, 0.4)' : '#C4B5FD',
+                      fontSize: '0.6875rem',
+                      padding: '0.35rem 0.625rem',
+                      borderRadius: '0.5rem',
+                      cursor: isDetecting ? 'not-allowed' : 'pointer',
+                      fontWeight: 650,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      transition: 'all 0.2s',
+                      pointerEvents: isDetecting ? 'none' : 'auto'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isDetecting) {
+                        e.currentTarget.style.background = 'rgba(124, 58, 237, 0.3)';
+                        e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.5)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isDetecting) {
+                        e.currentTarget.style.background = 'rgba(124, 58, 237, 0.15)';
+                        e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+                      }
+                    }}
+                  >
+                    {isDetecting ? '📍 GPS...' : '📍 GPS'}
+                  </button>
+                </form>
+
+                {/* Suggestions Dropdown */}
+                {suggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '110%',
+                    left: 0,
+                    right: 0,
+                    background: 'rgba(8, 12, 32, 0.95)',
+                    border: '1px solid rgba(124, 58, 237, 0.3)',
+                    borderRadius: '0.5rem',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 100,
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                    backdropFilter: 'blur(16px)',
+                  }}>
+                    {suggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => {
+                          handleSelectLocation(s.lat, s.lon, s.display_name);
+                          setSearchQuery('');
+                          setSuggestions([]);
+                        }}
+                        style={{
+                          padding: '0.5rem 0.75rem',
+                          fontSize: '0.725rem',
+                          color: '#C4B5FD',
+                          cursor: 'pointer',
+                          borderBottom: idx < suggestions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(124, 58, 237, 0.25)';
+                          e.currentTarget.style.color = '#fff';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = '#C4B5FD';
+                        }}
+                      >
+                        {s.display_name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div className="dashboard-status-bar-right" style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', position: 'relative', zIndex: 3 }}>
