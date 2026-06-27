@@ -644,6 +644,49 @@ function AISpaceGuideCard({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  useEffect(() => {
+    // Generate initial bot greeting message once when data becomes available
+    const generateWelcomeMessage = () => {
+      const loc = observerCoords.label;
+      const score = astronomyScore;
+      
+      const visiblePlanets = combinedVisible.filter((o) => o.type === 'Planet');
+      const visibleStars = combinedVisible.filter((o) => o.type === 'Star');
+      const visibleConsts = combinedVisible.filter((o) => o.type === 'Constellation');
+      
+      let pText = '';
+      if (visiblePlanets.length > 0) {
+        pText = `${visiblePlanets[0].name} is visible at ${visiblePlanets[0].altitude.toFixed(0)}° altitude. `;
+      } else {
+        pText = 'No major planets are currently visible. ';
+      }
+      
+      const objectsList: string[] = [];
+      visibleConsts.slice(0, 2).forEach(c => objectsList.push(c.name));
+      visibleStars.slice(0, 3).forEach(s => objectsList.push(s.name));
+      
+      const skyObjectsText = objectsList.length > 0 
+        ? `${objectsList.join(', ')} are above the horizon. ` 
+        : '';
+        
+      const issText = issNextPass 
+        ? `The ISS is expected to pass overhead in ${Math.floor(issCountdown / 3600)}h ${Math.floor((issCountdown % 3600) / 60)}m.` 
+        : 'No visible ISS passes expected tonight.';
+
+      const summary = `Current Sky Summary:\nFrom ${loc}, ${pText}${skyObjectsText}Cloud cover is ${cloudCover}% with humidity at ${humidity}%, giving an estimated observation score of ${score}/100. ${issText}`;
+      
+      setMessages([
+        { sender: 'bot', text: 'Hello! I am your AI Space Guide. Ask me anything about what is visible in the sky above you right now.' },
+        { sender: 'bot', text: summary }
+      ]);
+    };
+
+    if (combinedVisible.length > 0) {
+      generateWelcomeMessage();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [observerCoords.label, combinedVisible.length]);
+
   const generateGuideResponse = (question: string) => {
     const q = question.toLowerCase();
     const loc = observerCoords.label;
@@ -824,6 +867,11 @@ function AISpaceGuideCard({
 
 function CosmicEventPredictorCard({ timers, observerLabel }: CosmicEventPredictorCardProps) {
   const formatDuration = (seconds: number) => {
+    if (seconds > 24 * 3600) {
+      const days = Math.floor(seconds / (24 * 3600));
+      const hours = Math.floor((seconds % (24 * 3600)) / 3600);
+      return `In ${days}d ${hours}h`;
+    }
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
@@ -881,6 +929,7 @@ export default function Dashboard() {
   });
 
   const [issData, setIssData] = useState<ISSData | null>(null);
+  const [lastUpdated, setLastUpdated] = useState('');
   const [satellites, setSatellites] = useState(FALLBACK_TLE_DATA);
   const [visibleSatsList, setVisibleSatsList] = useState<VisibleSatellite[]>([]);
   const [issNextPass, setIssNextPass] = useState<ISSPass | null>(null);
@@ -991,6 +1040,9 @@ export default function Dashboard() {
     const propagateAll = () => {
       const date = new Date();
       const visibleSats: VisibleSatellite[] = [];
+
+      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastUpdated(`${timeStr} Local`);
 
       satellites.forEach(sat => {
         const prop = propagateTLE(sat.line1, sat.line2, date, observerCoords.lat, observerCoords.lng);
@@ -1273,9 +1325,16 @@ export default function Dashboard() {
             <span style={{ color: 'rgba(255,255,255,0.15)' }} className="hidden md:inline">|</span>
             <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>📍 {observerCoords.label} Meridian</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative', zIndex: 3 }}>
-            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)' }}>Telemetry Feed</span>
-            <span style={{ fontSize: '0.75rem', color: '#38D1F0', fontWeight: 600, fontFamily: 'monospace' }}>active</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.15rem', position: 'relative', zIndex: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)' }}>Telemetry Feed</span>
+              <span style={{ fontSize: '0.75rem', color: '#38D1F0', fontWeight: 650, fontFamily: 'monospace' }}>LIVE</span>
+            </div>
+            {lastUpdated && (
+              <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                Last Updated: {lastUpdated}
+              </span>
+            )}
           </div>
         </motion.div>
 
