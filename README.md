@@ -151,7 +151,7 @@ The live radar dashboard featuring the polar SVG satellite sweep, real-time hori
 ### 3. 🌍 Interactive 3D Coordinate Globe
 Users can select coordinate points across the globe to update the global observer location and dynamically update all celestial calculations in real-time.
 
-![Interactive 3D Globe](public/screenshots/interactive_globe.png) <img width="1362" height="782" alt="image" src="https://github.com/user-attachments/assets/94ab2bc7-192c-4ad8-bde8-f2bed3305ff2" />
+![Interactive 3D Globe] <img width="1362" height="782" alt="image" src="https://github.com/user-attachments/assets/94ab2bc7-192c-4ad8-bde8-f2bed3305ff2" />
 
 
 ### 4. 🪐 3D Solar System Explorer
