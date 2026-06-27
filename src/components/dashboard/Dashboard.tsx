@@ -59,6 +59,7 @@ interface SkyQualityScoreCardProps {
   astronomyScore: number;
   condition: string;
   color: string;
+  weatherLoading: boolean;
 }
 
 interface AISpaceGuideCardProps {
@@ -498,7 +499,8 @@ function SkyQualityScoreCard({
   humidity, setHumidity,
   bortle, setBortle,
   moonBrightness, setMoonBrightness,
-  astronomyScore, color
+  astronomyScore, color,
+  weatherLoading
 }: SkyQualityScoreCardProps) {
   const [showScoreInfo, setShowScoreInfo] = useState(false);
 
@@ -517,7 +519,9 @@ function SkyQualityScoreCard({
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
             <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>☁️ Cloud Cover</span>
-            <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 600 }}>{cloudCover}%</span>
+            <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 600 }}>
+              {weatherLoading ? <span className="text-cyan-400 animate-pulse">Loading...</span> : `${cloudCover}%`}
+            </span>
           </div>
           <input
             type="range"
@@ -533,7 +537,9 @@ function SkyQualityScoreCard({
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
             <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>💧 Humidity</span>
-            <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 600 }}>{humidity}%</span>
+            <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 600 }}>
+              {weatherLoading ? <span className="text-cyan-400 animate-pulse">Loading...</span> : `${humidity}%`}
+            </span>
           </div>
           <input
             type="range"
@@ -1236,6 +1242,8 @@ export default function Dashboard() {
 
   const [issData, setIssData] = useState<ISSData | null>(null);
   const [lastUpdated, setLastUpdated] = useState('');
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherCache = useRef<{ lat: number; lng: number; cloud: number; humidity: number; timestamp: number } | null>(null);
   const [satellites, setSatellites] = useState(FALLBACK_TLE_DATA);
   const [visibleSatsList, setVisibleSatsList] = useState<VisibleSatellite[]>([]);
@@ -1294,51 +1302,107 @@ export default function Dashboard() {
 
   // Geolocation trigger on demand
   const handleUseMyLocation = () => {
+    setIsDetecting(true);
+    let clickTime = 0;
     if (typeof window !== 'undefined') {
+      clickTime = performance.now();
+      console.log(`[Visual Log] [0.00ms] Clicked "Use My Location"`);
+      console.log(`[Visual Log] [0.00ms] Button Disabled ("📍 Detecting...")`);
       console.time("Total Use My Location Flow");
       console.time("Time until Geolocation API returns");
       (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf = {
-        clickTime: performance.now(),
+        clickTime: clickTime,
         geoTime: 0,
         weatherTime: 0,
         astronomyTime: 0,
         sgpTime: 0,
         aiTime: 0
       };
-      console.log("[Perf] Starting 'Use My Location' telemetry instrumentation...");
     }
 
     setToastMessage('📡 Detecting your location...');
     if (typeof window !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          setIsDetecting(false);
+          setWeatherLoading(true);
+          const geoReturn = performance.now();
+          const latency = clickTime > 0 ? geoReturn - clickTime : 0;
+          
           if (typeof window !== 'undefined') {
             console.timeEnd("Time until Geolocation API returns");
             const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
             if (perf) {
-              perf.geoTime = performance.now();
-              console.log(`[Perf] Geolocation API latency: ${(perf.geoTime - perf.clickTime).toFixed(2)}ms`);
+              perf.geoTime = geoReturn;
+              console.log(`[Perf] Geolocation API latency: ${latency.toFixed(2)}ms`);
             }
+            console.log(`[Visual Log] [${latency.toFixed(2)}ms] Geolocation Permission Granted`);
           }
 
-          const startGeocode = performance.now();
           const { latitude, longitude } = position.coords;
-          const label = `My Location (${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`;
-          const geocodeDuration = performance.now() - startGeocode;
-          console.log(`[Perf] Reverse geocoding duration: ${geocodeDuration.toFixed(2)}ms`);
+          const latStr = latitude.toFixed(2);
+          const lngStr = longitude.toFixed(2);
+          const tempLabel = `Updating... (${latStr}°, ${lngStr}°)`;
           
           setToastMessage(`🌍 Updating observation point...`);
-          setObserverCoords({ lat: latitude, lng: longitude, label });
           
+          // Update header and fly globe immediately
+          setObserverCoords({ lat: latitude, lng: longitude, label: tempLabel });
+          
+          if (typeof window !== 'undefined') {
+            const timeSinceClick = performance.now() - clickTime;
+            console.log(`[Visual Log] [${timeSinceClick.toFixed(2)}ms] Header Updated: ${tempLabel}`);
+            console.log(`[Visual Log] [${timeSinceClick.toFixed(2)}ms] Globe Camera Started Flying`);
+          }
+
           window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
-            detail: { lat: latitude, lng: longitude, label }
+            detail: { lat: latitude, lng: longitude, label: tempLabel }
           }));
+
+          // Trigger reverse geocoding in background
+          const reverseGeocode = async () => {
+            try {
+              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=en`, {
+                headers: { 'User-Agent': 'ZenithApp/1.0' }
+              });
+              if (res.ok) {
+                const data = await res.json();
+                const address = data.address;
+                if (address) {
+                  const city = address.city || address.town || address.village || address.suburb || address.county || '';
+                  const country = address.country || '';
+                  if (city && country) {
+                    return `${city}, ${country}`;
+                  } else if (country) {
+                    return country;
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("Reverse geocoding failed", e);
+            }
+            return `My Location (${latStr}°, ${lngStr}°)`;
+          };
+
+          reverseGeocode().then((resolvedLabel) => {
+            setObserverCoords(prev => {
+              if (prev.lat === latitude && prev.lng === longitude) {
+                return { ...prev, label: resolvedLabel };
+              }
+              return prev;
+            });
+            if (typeof window !== 'undefined') {
+              console.log(`[Visual Log] [${(performance.now() - clickTime).toFixed(2)}ms] Location Geocoded: ${resolvedLabel}`);
+            }
+          });
 
           setTimeout(() => {
             setToastMessage(`✅ Mission Control synchronized`);
           }, 800);
         },
         () => {
+          setIsDetecting(false);
+          setWeatherLoading(false);
           if (typeof window !== 'undefined') {
             console.timeEnd("Time until Geolocation API returns");
             console.timeEnd("Total Use My Location Flow");
@@ -1348,6 +1412,7 @@ export default function Dashboard() {
         { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
       );
     } else {
+      setIsDetecting(false);
       setToastMessage(`Geolocation is not supported by your browser.`);
     }
   };
@@ -1372,6 +1437,16 @@ export default function Dashboard() {
       window.removeEventListener('zenith-coordinate-change', handleCoordinateChange);
     };
   }, []);
+
+  // Trigger Visual Log for Dashboard Widgets Updated
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+      if (perf && perf.clickTime > 0) {
+        console.log(`[Visual Log] [${(performance.now() - perf.clickTime).toFixed(2)}ms] Dashboard Widgets Updated (Initial Layout & Positions)`);
+      }
+    }
+  }, [observerCoords]);
 
   // 2. Fetch fresh TLE sets from CelesTrak (with fallback)
   const fetchCelesTrakTLE = async (noradId: number, fallback: { line1: string; line2: string }) => {
@@ -1552,11 +1627,15 @@ export default function Dashboard() {
       ) {
         setCloudCover(weatherCache.current.cloud);
         setHumidity(weatherCache.current.humidity);
+        setWeatherLoading(false);
         if (typeof window !== 'undefined') {
           const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
           if (perf) {
             perf.weatherTime = performance.now() - startWeather;
             console.log(`[Perf] Open-Meteo Weather: ${perf.weatherTime.toFixed(2)}ms (CACHED)`);
+            if (perf.clickTime > 0) {
+              console.log(`[Visual Log] [${(performance.now() - perf.clickTime).toFixed(2)}ms] Weather Loaded: Cloud Cover ${weatherCache.current.cloud}%, Humidity ${weatherCache.current.humidity}% (CACHED)`);
+            }
           }
         }
         return;
@@ -1579,8 +1658,16 @@ export default function Dashboard() {
               humidity: data.current.relative_humidity_2m,
               timestamp: Date.now()
             };
+            
+            if (typeof window !== 'undefined') {
+              const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
+              if (perf && perf.clickTime > 0) {
+                console.log(`[Visual Log] [${(performance.now() - perf.clickTime).toFixed(2)}ms] Weather Loaded: Cloud Cover ${data.current.cloud_cover}%, Humidity ${data.current.relative_humidity_2m}%`);
+              }
+            }
           }
         }
+        setWeatherLoading(false);
         if (typeof window !== 'undefined') {
           const perf = (window as unknown as { __zenith_perf?: ZenithPerfMetrics }).__zenith_perf;
           if (perf) {
@@ -1589,6 +1676,7 @@ export default function Dashboard() {
           }
         }
       } catch {
+        setWeatherLoading(false);
         if (active) {
           setCloudCover(10);
           setHumidity(35);
@@ -1803,31 +1891,36 @@ export default function Dashboard() {
               </span>
               <button
                 onClick={handleUseMyLocation}
+                disabled={isDetecting}
                 style={{
-                  background: 'rgba(124, 58, 237, 0.15)',
-                  border: '1px solid rgba(124, 58, 237, 0.3)',
-                  color: '#C4B5FD',
+                  background: isDetecting ? 'rgba(255, 255, 255, 0.05)' : 'rgba(124, 58, 237, 0.15)',
+                  border: isDetecting ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(124, 58, 237, 0.3)',
+                  color: isDetecting ? 'rgba(255, 255, 255, 0.4)' : '#C4B5FD',
                   fontSize: '0.6875rem',
                   padding: '0.25rem 0.625rem',
                   borderRadius: '0.5rem',
-                  cursor: 'pointer',
+                  cursor: isDetecting ? 'not-allowed' : 'pointer',
                   fontWeight: 650,
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.25rem',
                   transition: 'all 0.2s',
-                  pointerEvents: 'auto'
+                  pointerEvents: isDetecting ? 'none' : 'auto'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(124, 58, 237, 0.3)';
-                  e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.5)';
+                  if (!isDetecting) {
+                    e.currentTarget.style.background = 'rgba(124, 58, 237, 0.3)';
+                    e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.5)';
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(124, 58, 237, 0.15)';
-                  e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+                  if (!isDetecting) {
+                    e.currentTarget.style.background = 'rgba(124, 58, 237, 0.15)';
+                    e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+                  }
                 }}
               >
-                📍 Use My Location
+                {isDetecting ? '📍 Detecting...' : '📍 Use My Location'}
               </button>
             </div>
           </div>
@@ -1909,45 +2002,52 @@ export default function Dashboard() {
           )}
 
           {/* Dashboard grid */}
-          <div className="dashboard-grid">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <ISSCard data={issData} countdownText={countdownText} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <SkyQualityScoreCard 
-              cloudCover={cloudCover} setCloudCover={setCloudCover}
-              humidity={humidity} setHumidity={setHumidity}
-              bortle={bortle} setBortle={setBortle}
-              moonBrightness={moonBrightness} setMoonBrightness={setMoonBrightness}
-              astronomyScore={astronomyScore}
-              condition={condition}
-              color={color}
-            />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <VisibleObjectsCard objects={combinedVisible} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <SatelliteRadarCard satellites={visibleSatsList} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <AISpaceGuideCard 
-              observerCoords={observerCoords}
-              cloudCover={cloudCover}
-              humidity={humidity}
-              bortle={bortle}
-              moonBrightness={moonBrightness}
-              astronomyScore={astronomyScore}
-              condition={condition}
-              combinedVisible={combinedVisible}
-              issNextPass={issNextPass}
-              issCountdown={issCountdown}
-            />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <CosmicEventPredictorCard timers={timers} observerLabel={observerCoords.label} />
-          </div>
-        </div>
+          <motion.div 
+            className="dashboard-grid"
+            key={`${observerCoords.lat}-${observerCoords.lng}`}
+            initial={{ opacity: 0.78, y: 3 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <ISSCard data={issData} countdownText={countdownText} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <SkyQualityScoreCard 
+                cloudCover={cloudCover} setCloudCover={setCloudCover}
+                humidity={humidity} setHumidity={setHumidity}
+                bortle={bortle} setBortle={setBortle}
+                moonBrightness={moonBrightness} setMoonBrightness={setMoonBrightness}
+                astronomyScore={astronomyScore}
+                condition={condition}
+                color={color}
+                weatherLoading={weatherLoading}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <VisibleObjectsCard objects={combinedVisible} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <SatelliteRadarCard satellites={visibleSatsList} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <AISpaceGuideCard 
+                observerCoords={observerCoords}
+                cloudCover={cloudCover}
+                humidity={humidity}
+                bortle={bortle}
+                moonBrightness={moonBrightness}
+                astronomyScore={astronomyScore}
+                condition={condition}
+                combinedVisible={combinedVisible}
+                issNextPass={issNextPass}
+                issCountdown={issCountdown}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <CosmicEventPredictorCard timers={timers} observerLabel={observerCoords.label} />
+            </div>
+          </motion.div>
         </div>
 
         {/* Data Source Credits Badge */}
