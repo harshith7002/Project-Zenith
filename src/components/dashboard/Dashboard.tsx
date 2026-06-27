@@ -1285,7 +1285,7 @@ export default function Dashboard() {
   }, [issCountdown]);
 
   return (
-    <section className="dashboard-section" id="dashboard" style={{ position: 'relative' }}>
+    <section className="dashboard-section" id="dashboard" style={{ position: 'relative', scrollMarginTop: '6.5rem' }}>
       {/* Top divider glow */}
       <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '60%', maxWidth: 700, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(124,58,237,0.5), rgba(6,182,212,0.5), transparent)' }} />
       <div className="glow-blob" style={{ width: 600, height: 600, top: '-10%', right: '-5%', background: 'radial-gradient(circle, rgba(6,182,212,0.06), transparent 65%)' }} />
@@ -1325,7 +1325,7 @@ export default function Dashboard() {
             <span style={{ color: 'rgba(255,255,255,0.15)' }} className="hidden md:inline">|</span>
             <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>📍 {observerCoords.label} Meridian</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.15rem', position: 'relative', zIndex: 3 }}>
+          <div className="dashboard-status-bar-right" style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', position: 'relative', zIndex: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)' }}>Telemetry Feed</span>
               <span style={{ fontSize: '0.75rem', color: '#38D1F0', fontWeight: 650, fontFamily: 'monospace' }}>LIVE</span>

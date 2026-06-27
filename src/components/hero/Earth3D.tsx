@@ -967,10 +967,11 @@ function CosmicDust() {
   );
 }
 
-function CameraParallax({ scrollRatio }: { scrollRatio: number }) {
+function CameraParallax({ scrollRef }: { scrollRef: React.RefObject<number> }) {
   const { size } = useThree();
 
   useFrame((state) => {
+    const scrollRatio = scrollRef.current;
     const mouseX = state.pointer.x * 0.7;
     const mouseY = state.pointer.y * 0.5;
 
@@ -1015,10 +1016,11 @@ function CameraParallax({ scrollRatio }: { scrollRatio: number }) {
   return null;
 }
 
-function EarthSystem({ scrollRatio, earthMeshRef }: { scrollRatio: number; earthMeshRef: React.RefObject<THREE.Mesh | null> }) {
+function EarthSystem({ scrollRef, earthMeshRef }: { scrollRef: React.RefObject<number>; earthMeshRef: React.RefObject<THREE.Mesh | null> }) {
   const ref = useRef<THREE.Group>(null);
 
   useFrame(() => {
+    const scrollRatio = scrollRef.current;
     if (ref.current) {
       if (typeof window !== 'undefined') {
         const isMobile = window.innerWidth < 768;
@@ -1046,30 +1048,33 @@ function EarthSystem({ scrollRatio, earthMeshRef }: { scrollRatio: number; earth
 }
 
 export default function Earth3D() {
-  const [scrollRatio, setScrollRatio] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef(0);
   const earthMeshRef = useRef<THREE.Mesh>(null);
 
   useEffect(() => {
     const handleScroll = () => {
       const height = window.innerHeight || 800;
-      setScrollRatio(window.scrollY / height);
+      const ratio = window.scrollY / height;
+      scrollRef.current = ratio;
+
+      if (containerRef.current) {
+        const opacity = THREE.MathUtils.clamp((2.8 - ratio) / 0.6, 0.0, 1.0);
+        containerRef.current.style.opacity = opacity.toString();
+        containerRef.current.style.display = opacity <= 0 ? 'none' : 'block';
+      }
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll();
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Fading boundaries: between 2.2 and 2.8 scroll ratio, background fades out completely
-  const opacity = THREE.MathUtils.clamp((2.8 - scrollRatio) / 0.6, 0.0, 1.0);
-  const display = opacity <= 0 ? 'none' : 'block';
-
   return (
     <div 
+      ref={containerRef}
       className="fixed inset-0 pointer-events-none"
       style={{ 
         zIndex: 0, 
-        opacity, 
-        display,
         position: 'fixed'
       }}
     >
@@ -1098,9 +1103,9 @@ export default function Earth3D() {
         <CosmicDust />
         
         {/* Earth System (slides left and zooms closer on scroll) */}
-        <EarthSystem scrollRatio={scrollRatio} earthMeshRef={earthMeshRef} />
+        <EarthSystem scrollRef={scrollRef} earthMeshRef={earthMeshRef} />
         
-        <CameraParallax scrollRatio={scrollRatio} />
+        <CameraParallax scrollRef={scrollRef} />
 
         <EffectComposer>
           <Bloom luminanceThreshold={0.18} luminanceSmoothing={0.8} intensity={0.5} />
