@@ -7,7 +7,18 @@
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-12.x-FF0055?style=for-the-badge&logo=framer)](https://www.framer.com/motion)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-> A cinematic, real-time cosmic radar that tracks satellites, celestial bodies, and space events — built with custom WebGL shaders, React Three Fiber, and live space APIs. Overcomes browser limitations to deliver a highly optimized 60 FPS, fully responsive space intelligence hub.
+---
+
+## 📋 Project Information
+
+* **Team:** Royal Code Builders
+* **Hackathon:** Project Zenith – The Celestial Eye (Round 2)
+* **Live Demo:** [https://project-zenith-celestial-eye.netlify.app](https://project-zenith-celestial-eye.netlify.app)
+* **GitHub**: [https://github.com/harshith7002/Project-Zenith](https://github.com/harshith7002/Project-Zenith)
+
+---
+
+> A cinematic, real-time cosmic radar that tracks satellites, celestial bodies, and space events — built with custom WebGL shaders, React Three Fiber, and live space APIs. Designed to deliver a smooth, highly optimized experience targeting 60 FPS on modern browsers.
 
 ---
 
@@ -38,7 +49,7 @@ npm install
 ```
 
 **3. Run the local development server**
-Starts the Next.js framework in development mode with Hot Module Replacement (HMR) enabled:
+Starts the Next.js framework in development mode with HMR (Hot Module Replacement) enabled:
 ```bash
 npm run dev
 ```
@@ -120,3 +131,25 @@ External libraries, frameworks, and tools used to build Project Zenith:
 ### Icons & Styling
 * **lucide-react** (`^0.470.0`): Clean SVGs for UI telemetry indicators.
 * **tailwindcss** (`^4.x`): CSS utility styling framework.
+
+---
+
+## 🌐 External APIs
+
+Project Zenith makes unauthenticated, rate-limit-free calls to the following live space telemetry and weather endpoints:
+* **WhereTheISS.at** – Real-time ISS orbital coordinates (latitude, longitude, velocity, altitude).
+* **Open-Meteo** – Local weather data (cloud cover and relative humidity) based on selected coordinates.
+* **CelesTrak** – Fetches real-time general perturbation Element Sets (TLE data) dynamically for satellites.
+* **Astronomy Engine** – Underlying local mathematical calculations for planetary and stellar coordinates.
+
+---
+
+## 🔐 Environment Variables
+
+No API keys or environment variables are required to run this project. The application uses public APIs and local astronomical calculations.
+
+---
+
+## 📄 License
+
+This project is open-source and licensed under the [MIT License](LICENSE).
