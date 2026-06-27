@@ -99,6 +99,32 @@ graph LR
 
 ---
 
+## 📸 Visual Gallery & Interface Walkthrough
+
+Below are screenshots of the fully functional Project Zenith application:
+
+### 1. 🌐 Cinematic 3D Earth Hero Section
+The WebGL-rendered 3D Earth complete with day/night terminator shading, golden city lights on the night side, custom atmosphere Fresnel glow, twinkling starfield, and high-inertia mouse drift.
+
+![WebGL 3D Earth Hero](public/screenshots/hero_earth.png)
+
+### 2. 📡 Mission Control Telemetry Dashboard
+The live radar dashboard featuring the polar SVG satellite sweep, real-time horizon-filtered visible sky objects, sky suitability calculator, next ISS pass prediction countdown, and reactive AI guide.
+
+![Mission Control Dashboard](public/screenshots/mission_control.png)
+
+### 3. 🌍 Interactive 3D Coordinate Globe
+Users can select coordinate points across the globe to update the global observer location and dynamically update all celestial calculations in real-time.
+
+![Interactive 3D Globe](public/screenshots/interactive_globe.png)
+
+### 4. 🪐 3D Solar System Explorer
+An interactive Keplerian orbit simulator featuring Saturn's ring system shader, asteroid belt, sun halo, and responsive information modals.
+
+![3D Solar System Explorer](public/screenshots/solar_system.png)
+
+---
+
 ## ⚙️ Installation and Setup Instructions
 
 This section outlines how to install and run the Project Zenith codebase locally on your machine.
