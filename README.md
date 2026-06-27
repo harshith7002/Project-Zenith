@@ -138,22 +138,27 @@ Below are screenshots of the fully functional Project Zenith application:
 ### 1. 🌐 Cinematic 3D Earth Hero Section
 The WebGL-rendered 3D Earth complete with day/night terminator shading, golden city lights on the night side, custom atmosphere Fresnel glow, twinkling starfield, and high-inertia mouse drift.
 
-![WebGL 3D Earth Hero](public/screenshots/hero_earth.png)
+![WebGL 3D Earth Hero] <img width="1907" height="900" alt="image" src="https://github.com/user-attachments/assets/2dfc8ca0-c579-4718-9f67-4a133a7c727b" />
+
+
 
 ### 2. 📡 Mission Control Telemetry Dashboard
 The live radar dashboard featuring the polar SVG satellite sweep, real-time horizon-filtered visible sky objects, sky suitability calculator, next ISS pass prediction countdown, and reactive AI guide.
 
-![Mission Control Dashboard](public/screenshots/mission_control.png)
+![Mission Control Dashboard] <img width="942" height="802" alt="image" src="https://github.com/user-attachments/assets/c2d23ac2-53c6-485c-9cb4-31f740d853ef" />
+
 
 ### 3. 🌍 Interactive 3D Coordinate Globe
 Users can select coordinate points across the globe to update the global observer location and dynamically update all celestial calculations in real-time.
 
-![Interactive 3D Globe](public/screenshots/interactive_globe.png)
+![Interactive 3D Globe](public/screenshots/interactive_globe.png) <img width="1362" height="782" alt="image" src="https://github.com/user-attachments/assets/94ab2bc7-192c-4ad8-bde8-f2bed3305ff2" />
+
 
 ### 4. 🪐 3D Solar System Explorer
 An interactive Keplerian orbit simulator featuring Saturn's ring system shader, asteroid belt, sun halo, and responsive information modals.
 
-![3D Solar System Explorer](public/screenshots/solar_system.png)
+![3D Solar System Explorer] <img width="1157" height="887" alt="image" src="https://github.com/user-attachments/assets/2bd406b6-bf5e-4229-8225-f2dcc3d98572" />
+
 
 ---
 
