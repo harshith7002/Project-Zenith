@@ -7,59 +7,56 @@
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-12.x-FF0055?style=for-the-badge&logo=framer)](https://www.framer.com/motion)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-> A cinematic, real-time cosmic radar that tracks satellites, celestial bodies, and space events — built with custom WebGL shaders, React Three Fiber, and live space APIs.
+> A cinematic, real-time cosmic radar that tracks satellites, celestial bodies, and space events — built with custom WebGL shaders, React Three Fiber, and live space APIs. Overcomes browser limitations to deliver a highly optimized 60 FPS, fully responsive space intelligence hub.
 
 ---
 
 ## ⚙️ Installation and Setup Instructions
 
-Clearly explained instructions to clone, install dependencies, and run the project locally on your machine.
+This section outlines how to install and run the Project Zenith codebase locally on your machine.
 
 ### Prerequisites
 
-To build and run this application locally, you need the following utilities installed:
-
-| Requirement | Version | Link |
+| Requirement | Recommended Version | Purpose |
 |---|---|---|
-| **Node.js** | `18.x` or higher | [https://nodejs.org](https://nodejs.org) |
-| **npm** | `9.x` or higher | *(Bundled with Node.js)* |
-| **Active Internet Connection** | Required | *(For CDNs & live ISS REST API telemetry)* |
+| **Node.js** | `18.x` or higher | JavaScript runtime |
+| **npm** | `9.x` or higher | Package manager |
+| **Internet Connection** | Active | To fetch CDN textures and query live unauthenticated API endpoints |
 
-### Step-by-Step Local Deployment
+### Step-by-Step Local Setup
 
-**1. Clone the project repository**
-Open your terminal and clone the source code:
+**1. Clone the repository**
 ```bash
 git clone https://github.com/harshith7002/Project-Zenith.git
 cd Project-Zenith
 ```
 
-**2. Install runtime and development dependencies**
+**2. Install dependencies**
+Installs all UI rendering, math propagation, and design system packages:
 ```bash
 npm install
 ```
 
-**3. Run the development server**
-Launch Next.js in development mode with HMR (Hot Module Replacement) enabled:
+**3. Run the local development server**
+Starts the Next.js framework in development mode with Hot Module Replacement (HMR) enabled:
 ```bash
 npm run dev
 ```
 
-**4. View the application**
+**4. View in Browser**
 Open your web browser and navigate to:
 ```
 http://localhost:3000
 ```
-The page will hot-reload automatically when you save code changes.
 
-### Production Compiling & Optimization
+### Production Build & Optimization
 
-To test the application under local production conditions:
+To compile, lint, and run the optimized production bundle locally:
 ```bash
-# Compile and optimize for production (ESLint and type safety checks will run)
+# Compile, lint, and check type safety (Webpack will bundle assets)
 npm run build
 
-# Start the production server
+# Start the optimized production server
 npm start
 ```
 
@@ -67,37 +64,32 @@ npm start
 
 ## 🎨 Website Functionality and Unique Features
 
-Project Zenith is built with custom WebGL, canvas rendering, and real-time computations to ensure the UI feels alive, responsive, and astronomically accurate.
+Project Zenith translates a theoretical space blueprint into a highly optimized, interactive, and functional real-time tracking application.
 
-### 1. 🌐 Cinematic 3D Earth (WebGL & Custom Shaders)
-The entire background is a live-rendered 3D Earth built from scratch using custom GLSL shaders:
-* **Day/Night Terminator**: A custom fragment shader blends day and night textures dynamically based on the Sun's coordinate vector using `smoothstep(-0.25, 0.25, cosTheta)`, creating a realistic glowing sunset twilight zone.
-* **Golden City Lights**: Rendered on the night hemisphere of the globe and masked dynamically by cloud layers.
-* **Ocean Specular Reflections**: Real-time specular sun-reflection reflections computed using per-pixel specular mapping.
-* **Razor-Thin Atmospheric Corona**: A custom `BackSide` atmospheric glow shader renders a thin, bright blue rim on the sunlit limb, fading smoothly into the darkness of space at the terminator.
-* **Organically Twinkling Starfield**: 1,000 circular stars rendered across two depth layers using a custom vertex-shader phase formula to slowly twinkle a subset of stars, eliminating visual noise.
-* **Anamorphic Lens Flare**: Ray-occlusion tested so that the solar flare fades out naturally when the Sun is eclipsed by the Earth's geometry.
-* **Drift & Mouse Parallax**: Slower, high-inertia camera parallax linked to mouse coordinates to create a dramatic, cinematic IMAX camera feel.
+### 1. 🌐 The Blueprint Concept & Cinematic Visuals
+We implemented a dark, futuristic "glassmorphism blueprint" theme matching NASA and SpaceX mission telemetry interfaces:
+* **WebGL Shaded Earth**: The background features a 3D Earth built using custom GLSL shaders. A custom fragment shader blends day and night maps based on solar direction vectors. Golden city lights glow on the night hemisphere, masked dynamically by cloud layers.
+* **Atmospheric Corona & Twilight**: A custom `BackSide` atmospheric vertex/fragment shader renders a razor-thin blue halo on the sunlit limb, smoothly transitioning into warm orange sunset hues at the twilight terminator.
+* **Occlusion-Tested Lens Flare**: The anamorphic solar streak and corona automatically dim and fade to zero when the Sun passes behind the Earth's spherical geometry.
+* **Twinkling Starfield**: Renders 1,000 circular stars over multiple parallax depth layers. A vertex shader phase formula twinkles a subset of stars slowly to maintain high visual contrast without distracting noise.
 
-### 2. 📡 Celestial Radar & Mission Control Dashboard
-Six integrated telemetry panels display live calculations:
-* **ISS Tracker**: Fetches the physical altitude, orbital velocity, latitude, and longitude of the ISS directly from unauthenticated REST endpoints, updating every 5 seconds.
-* **Calculated Sky Quality Score**: An interactive suitability calculator that evaluates live cloud cover, relative humidity (fetched from the **Open-Meteo API**), Moon phase, and Bortle light pollution index to score the sky out of 100.
-* **Visible Sky Objects**: Replaces hardcoded placeholders with real Alt/Az calculations via the `astronomy-engine` library. Only displays planets, stars, and constellations that are physically above the horizon ($> 0^\circ$ altitude) relative to the observer's coordinates.
-* **Blinking Satellite Radar**: Projects 13 real satellites (Starlink, GPS constellations, NOAA weather satellites) onto a 2D polar projection SVG radar grid with pulsing radial sweeps.
-* **Context-Aware AI Space Guide**: A rule-based chat assistant that automatically analyzes the observer's location, current weather profile, visible planets, and next ISS pass time to generate a live "Current Sky Summary" welcome message and answer astronomy questions.
-* **Cosmic Event Predictor**: Real-time relative countdown timers to the next visible ISS flyover, upcoming meteor shower, planetary alignment, and lunar eclipse.
-* **Live Telemetry Badge**: Displays a "Last Updated" timestamp in the status bar that refreshes every 4 seconds, complete with citations mapping out the unauthenticated REST APIs.
+### 2. 📡 Real-Time Data Features & Astronomical Realism
+* **Horizon-Masked Sky Objects**: Replaces simulated mock data with real-time Alt/Az (Altitude and Azimuth) local coordinate calculations via the **`astronomy-engine`** library. Based on the observer's latitude, longitude, and local time, the dashboard dynamically filters out any planets, major stars, or constellations below the horizon ($< 0^\circ$ altitude).
+* **SGP4 Satellite Propagation**: Tracks 13 real satellites (including ISS, Starlink blocks, and NOAA weather satellites). The system propagates orbital coordinates in real-time using the SGP4 algorithm via **`satellite.js`** using elements fetched from CelesTrak.
+* **Polar Satellite Radar**: An animated polar SVG radar grid projects 3D satellite positions into a clean 2D radar screen with blinking, color-coded markers and sweep lines.
+* **ISS Pass Predictor**: Scans a 24-hour window from the current time to compute the exact rise time, pass duration, peak elevation, and a live countdown to the next visible ISS flyover.
+* **Multi-Variable Sky Quality Score**: Fetches live cloud cover and relative humidity from the **Open-Meteo API**, calculates Moon illumination, and applies a Bortle light pollution model to generate an observation score ($0-100$).
+* **Context-Aware AI Space Guide**: A rule-based assistant that automatically drafts a welcome greeting detailing your local coordinates, visible planets, constellations, weather parameters, and ISS pass times, and answers custom questions.
+* **Live Telemetry & Source Attribution Badge**: Shows a "Last Updated" timestamp in the status bar (updating every 4 seconds) along with explicit references credit badge to the open data providers.
 
-### 3. 🌍 Interactive 3D Globe
-* Powered by `react-globe.gl` using high-resolution textures.
-* Plots the live tracking path of the ISS in real-time.
-* Interactive city markers that allow the user to select locations or click "Set as Observation Point" to dynamically recalculate all coordinates, radar blips, and AI summaries in the dashboard.
+### 3. 📱 Full Responsiveness & Device Compatibility
+* **Adaptive CSS Layouts**: The application design is built utilizing CSS Grid and Flexbox layouts.
+* **Status Bar Stacking**: A responsive media query stack collapses the status bar vertically on mobile and tablet viewports to keep text aligned and readable without navbar overlaps.
+* **Aspect-Ratio-Responsive 3D Canvas**: Eases the WebGL camera's field of view (FOV) based on screen width/height ratios, automatically pulling the camera back in portrait mode to keep the Earth fully visible.
 
-### 4. 🪐 Solar System Orbit Simulator
-* Renders all 8 planets orbiting the Sun in real-time 3D with correct relative orbital speeds.
-* **Procedural Saturn Rings**: Fragment shader modeling multi-frequency sine wave concentric bands and the Cassini Division gap.
-* **Dynamic Modals**: Clicking any planet pauses its orbit, smoothly transition-focuses the camera, and opens an educational "Cosmic Story" file.
+### 4. 🚀 Under-the-Hood Performance Optimizations
+* **Zero React State Re-Renders on Scroll**: Replaced React scroll-state bindings with a mutable `scrollRef` object read directly inside R3F's `useFrame` animation loop. The background fade and display style are updated directly on the DOM wrapper element, eliminating 100% of React component re-rendering overhead for a **stable 60 FPS** scroll feel.
+* **Cached Bounding Rects**: Spotlight mouse hover cards cache their element bounds exactly once on mouse enter, preventing browser layout thrashing during mouse move events.
 
 ---
 
