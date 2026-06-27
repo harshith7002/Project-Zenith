@@ -5,6 +5,28 @@ import * as Astronomy from 'astronomy-engine';
 import * as satellite from 'satellite.js';
 import { FALLBACK_TLE_DATA } from '@/lib/tleData';
 
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+    } catch (e) {
+      console.warn("localStorage is not accessible", e);
+    }
+    return null;
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
+      }
+    } catch (e) {
+      console.warn("localStorage is not accessible", e);
+    }
+  }
+};
+
 interface ZenithPerfMetrics {
   clickTime: number;
   geoTime: number;
@@ -1337,9 +1359,12 @@ export default function Dashboard() {
     // Cache-First: Optimistically load from localStorage for instant response
     let cachedCoords: { lat: number; lng: number; label: string } | null = null;
     try {
-      const stored = localStorage.getItem('zenith_last_coords');
+      const stored = safeLocalStorage.getItem('zenith_last_coords');
       if (stored) {
-        cachedCoords = JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number' && typeof parsed.label === 'string') {
+          cachedCoords = parsed;
+        }
       }
     } catch (e) {
       console.error("Failed to parse cached coordinates", e);
@@ -1437,10 +1462,10 @@ export default function Dashboard() {
                 const country = address.country || '';
                 if (city && country) {
                   const labelStr = `${city}, ${country}`;
-                  localStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: labelStr }));
+                  safeLocalStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: labelStr }));
                   return labelStr;
                 } else if (country) {
-                  localStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: country }));
+                  safeLocalStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: country }));
                   return country;
                 }
               }
@@ -1449,7 +1474,7 @@ export default function Dashboard() {
             console.error("Reverse geocoding failed", e);
           }
           const fallbackLabel = `My Location (${latStr}°, ${lngStr}°)`;
-          localStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: fallbackLabel }));
+          safeLocalStorage.setItem('zenith_last_coords', JSON.stringify({ lat: latitude, lng: longitude, label: fallbackLabel }));
           return fallbackLabel;
         })(),
 
