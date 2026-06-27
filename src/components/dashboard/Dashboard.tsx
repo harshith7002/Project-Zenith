@@ -1024,8 +1024,8 @@ export default function Dashboard() {
     }
   }, [toastMessage]);
 
-  // Geolocation trigger on mount
-  useEffect(() => {
+  // Geolocation trigger on demand
+  const handleUseMyLocation = () => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -1039,12 +1039,14 @@ export default function Dashboard() {
           }));
         },
         () => {
-          console.log("Geolocation permission not active, fallback to Nagpur observer point default.");
+          setToastMessage(`Location permission denied. Continuing with the default observation point.`);
         },
         { enableHighAccuracy: false, timeout: 5000, maximumAge: 86400000 }
       );
+    } else {
+      setToastMessage(`Geolocation is not supported by your browser.`);
     }
-  }, []);
+  };
 
   // 1. Listen for global coordinate changes from the Globe
   useEffect(() => {
@@ -1429,9 +1431,39 @@ export default function Dashboard() {
               <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#4ADE80', letterSpacing: '0.08em' }}>All Systems Nominal</span>
             </div>
             <span style={{ color: 'rgba(255,255,255,0.15)' }} className="hidden md:inline">|</span>
-            <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>
-              🌍 Current Observation Point: <strong style={{ color: '#fff', fontWeight: 600 }}>{observerCoords.label}</strong>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.45)' }}>
+                🌍 Current Observation Point: <strong style={{ color: '#fff', fontWeight: 600 }}>{observerCoords.label}</strong>
+              </span>
+              <button
+                onClick={handleUseMyLocation}
+                style={{
+                  background: 'rgba(124, 58, 237, 0.15)',
+                  border: '1px solid rgba(124, 58, 237, 0.3)',
+                  color: '#C4B5FD',
+                  fontSize: '0.6875rem',
+                  padding: '0.25rem 0.625rem',
+                  borderRadius: '0.5rem',
+                  cursor: 'pointer',
+                  fontWeight: 650,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  transition: 'all 0.2s',
+                  pointerEvents: 'auto'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(124, 58, 237, 0.3)';
+                  e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(124, 58, 237, 0.15)';
+                  e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+                }}
+              >
+                📍 Use My Location
+              </button>
+            </div>
           </div>
           <div className="dashboard-status-bar-right" style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', position: 'relative', zIndex: 3 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
