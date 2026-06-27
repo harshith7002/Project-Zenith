@@ -2132,7 +2132,7 @@ export default function Dashboard() {
           initial={{ opacity: 0, y: 10 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          style={{ position: 'relative', overflow: 'hidden' }}
+          style={{ position: 'relative', overflow: 'visible' }}
         >
           {/* Top highlight line */}
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.4), transparent)' }} />
@@ -2221,12 +2221,12 @@ export default function Dashboard() {
                     top: '110%',
                     left: 0,
                     right: 0,
-                    background: 'rgba(8, 12, 32, 0.95)',
+                    background: 'rgba(8, 12, 32, 0.98)',
                     border: '1px solid rgba(124, 58, 237, 0.3)',
                     borderRadius: '0.5rem',
                     maxHeight: '200px',
                     overflowY: 'auto',
-                    zIndex: 100,
+                    zIndex: 9999,
                     boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
                     backdropFilter: 'blur(16px)',
                   }}>
