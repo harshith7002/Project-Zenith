@@ -732,7 +732,7 @@ function AISpaceGuideCard({
         reply = `No visible ISS passes predicted for ${loc} over the next 24 hours. The orbit is currently not crossing your zenith.`;
       }
     } 
-    else if (q.includes('weather') || q.includes('cloud') || q.includes('condition') || q.includes('humidity') || q.includes('pollution') || q.includes('bortle')) {
+    else if (q.includes('weather') || q.includes('cloud') || q.includes('condition') || q.includes('humidity') || q.includes('pollution') || q.includes('bortle') || q.includes('tonight') || q.includes('observing') || q.includes('observe')) {
       let advice = '';
       if (score >= 80) advice = 'Observations will be crystal clear. Perfect night for stargazing!';
       else if (score >= 50) advice = 'Skies are fair. Good for observing bright planets or the Moon.';
@@ -740,6 +740,25 @@ function AISpaceGuideCard({
       
       reply = `Atmospheric profile for ${loc}: Cloud cover is ${cloudCover}%, humidity is ${humidity}%, moon brightness is ${moonBrightness}%, and light pollution is estimated at Bortle Class ${bortle}. ${advice}`;
     } 
+    else if (q.includes('constellation')) {
+      const visibleConsts = combinedVisible.filter((o) => o.type === 'Constellation');
+      if (visibleConsts.length > 0) {
+        reply = `Overhead constellations currently visible from ${loc} include: ${visibleConsts.slice(0, 4).map(c => c.name).join(', ')}. The most prominent one is ${visibleConsts[0].name}.`;
+      } else {
+        reply = `No major constellations are catalogued above your horizon at this moment.`;
+      }
+    }
+    else if (q.includes('brightest') || q.includes('bright')) {
+      if (visiblePlanets.some(p => p.name === 'Venus')) {
+        reply = `The brightest planet visible in the sky right now is Venus. It is glowing intensely at magnitude -4.4 and can be seen easily in the twilight.`;
+      } else if (visiblePlanets.some(p => p.name === 'Jupiter')) {
+        reply = `The brightest planet visible in your sky right now is Jupiter. It is shining brightly at magnitude -2.5 and is high above the horizon.`;
+      } else if (visibleStars.length > 0) {
+        reply = `The brightest star above your horizon right now is ${visibleStars[0].name}. It stands out clearly against the other deep-sky catalogued elements.`;
+      } else {
+        reply = `The Moon is currently the brightest object visible in the night sky.`;
+      }
+    }
     else if (q.includes('mars')) {
       const m = visiblePlanets.find((p) => p.name === 'Mars');
       reply = m 
@@ -943,6 +962,39 @@ export default function Dashboard() {
   const [issNextPass, setIssNextPass] = useState<ISSPass | null>(null);
   const [issCountdown, setIssCountdown] = useState<number>(9195);
   const [countdownText, setCountdownText] = useState('Calculating next pass...');
+
+  // Telemetry Onboarding States & UTC clock
+  const [syncState, setSyncState] = useState<'idle' | 'analyzing' | 'telemetry' | 'locked' | 'ready'>('idle');
+  const [utcTime, setUtcTime] = useState('');
+
+  // Trigger telemetry lock-on sequence when observerCoords change
+  useEffect(() => {
+    setSyncState('analyzing');
+    const t1 = setTimeout(() => setSyncState('telemetry'), 600);
+    const t2 = setTimeout(() => setSyncState('locked'), 1200);
+    const t3 = setTimeout(() => setSyncState('ready'), 1700);
+    const t4 = setTimeout(() => setSyncState('idle'), 2100);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+    };
+  }, [observerCoords.lat, observerCoords.lng]);
+
+  // Live UTC Clock
+  useEffect(() => {
+    const update = () => {
+      const d = new Date();
+      const hrs = String(d.getUTCHours()).padStart(2, '0');
+      const mins = String(d.getUTCMinutes()).padStart(2, '0');
+      const secs = String(d.getUTCSeconds()).padStart(2, '0');
+      setUtcTime(`${hrs}:${mins}:${secs} UTC`);
+    };
+    update();
+    const iv = setInterval(update, 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Weather states (pre-populated dynamically, can still be adjusted by user)
   const [cloudCover, setCloudCover] = useState(15);
@@ -1337,6 +1389,8 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)' }}>Telemetry Feed</span>
               <span style={{ fontSize: '0.75rem', color: '#38D1F0', fontWeight: 650, fontFamily: 'monospace' }}>LIVE</span>
+              <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: '0.75rem' }}>|</span>
+              <span style={{ fontSize: '0.75rem', color: '#A78BFA', fontWeight: 650, fontFamily: 'monospace' }}>{utcTime}</span>
             </div>
             {lastUpdated && (
               <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
@@ -1346,8 +1400,70 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* Dashboard grid */}
-        <div className="dashboard-grid">
+        {/* Dashboard grid wrapper */}
+        <div style={{ position: 'relative', minHeight: '300px' }}>
+          {syncState !== 'idle' && (
+            <motion.div
+              style={{
+                position: 'absolute',
+                inset: -8,
+                background: 'rgba(5, 8, 22, 0.88)',
+                backdropFilter: 'blur(12px)',
+                zIndex: 50,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '1.5rem',
+                borderRadius: '1.5rem',
+                border: '1px solid rgba(124, 58, 237, 0.2)'
+              }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              {/* Conic sweep animation */}
+              <div style={{
+                position: 'relative',
+                width: '80px',
+                height: '80px',
+                borderRadius: '50%',
+                border: '2px solid rgba(6, 182, 212, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  position: 'absolute',
+                  width: '100%',
+                  height: '100%',
+                  background: 'conic-gradient(from 0deg, rgba(6, 182, 212, 0.4), transparent)',
+                  animation: 'spin 1.5s linear infinite',
+                  borderRadius: '50%'
+                }} />
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#06B6D4', boxShadow: '0 0 10px #06B6D4' }} />
+              </div>
+              
+              <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.6875rem', color: '#7C3AED', fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase' }}>
+                  System Coordinate Lock
+                </span>
+                <h3 style={{ fontSize: '1.0625rem', fontWeight: 800, color: '#fff', letterSpacing: '0.05em', fontFamily: 'monospace' }}>
+                  {syncState === 'analyzing' && '📡 ANALYZING SKY DOME...'}
+                  {syncState === 'telemetry' && '📥 RECEIVING ORBITAL TELEMETRY...'}
+                  {syncState === 'locked' && '🎯 SATELLITE CHANNELS LOCKED'}
+                  {syncState === 'ready' && '🛰️ MISSION CONTROL ONLINE'}
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace' }}>
+                  Target: {observerCoords.label} ({observerCoords.lat.toFixed(4)}°, {observerCoords.lng.toFixed(4)}°)
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Dashboard grid */}
+          <div className="dashboard-grid">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <ISSCard data={issData} countdownText={countdownText} />
           </div>
@@ -1385,6 +1501,7 @@ export default function Dashboard() {
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <CosmicEventPredictorCard timers={timers} observerLabel={observerCoords.label} />
           </div>
+        </div>
         </div>
 
         {/* Data Source Credits Badge */}

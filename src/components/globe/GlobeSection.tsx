@@ -2,6 +2,7 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect, useRef, Suspense } from 'react';
 import Globe from 'react-globe.gl';
+import * as satellite from 'satellite.js';
 
 const CITY_MARKERS = [
   { lat: 28.6139, lng: 77.2090, label: 'New Delhi', color: '#A78BFA' },
@@ -12,11 +13,43 @@ const CITY_MARKERS = [
   { lat: -1.2921, lng: 36.8219, label: 'Nairobi', color: '#A78BFA' },
 ];
 
+const ISS_TLE_LINE1 = '1 25544U 98067A   26177.58156157  .00015634  00000-0  28172-3 0  9997';
+const ISS_TLE_LINE2 = '2 25544  51.6416 195.4214 0005118  90.4188 335.7876 15.49842106573887';
+
+const getIssPath = (tle1: string, tle2: string) => {
+  try {
+    const satrec = satellite.twoline2satrec(tle1, tle2);
+    const pathPoints: [number, number, number][] = [];
+    const now = new Date();
+    // Propagate orbit for 92 minutes (full orbit duration) in 2-minute steps
+    for (let i = 0; i <= 92; i += 2) {
+      const time = new Date(now.getTime() + i * 60 * 1000);
+      const positionAndVelocity = satellite.propagate(satrec, time);
+      if (!positionAndVelocity) continue;
+      const positionEci = positionAndVelocity.position;
+      if (positionEci && typeof positionEci !== 'boolean') {
+        const gmst = satellite.gstime(time);
+        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+        const lat = satellite.radiansToDegrees(positionGd.latitude);
+        const lng = satellite.radiansToDegrees(positionGd.longitude);
+        pathPoints.push([lng, lat, 0.05]); // 0.05 altitude ratio above globe
+      }
+    }
+    return [pathPoints];
+  } catch (err) {
+    console.error("Path calculation error", err);
+    return [];
+  }
+};
+
 type MarkerType = { lat: number; lng: number; label: string; color: string; type?: string };
 
 function GlobeInner({ width, height }: { width: number; height: number }) {
   const [selected, setSelected] = useState<MarkerType | null>(null);
   const [issPos, setIssPos] = useState({ lat: 25, lng: 78 });
+  const [issPath, setIssPath] = useState<[number, number, number][][]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const globeRef = useRef<any>(null);
 
   useEffect(() => {
     const fetch5s = async () => {
@@ -31,6 +64,10 @@ function GlobeInner({ width, height }: { width: number; height: number }) {
     return () => clearInterval(iv);
   }, []);
 
+  useEffect(() => {
+    setIssPath(getIssPath(ISS_TLE_LINE1, ISS_TLE_LINE2));
+  }, []);
+
   const markers: MarkerType[] = [
     ...CITY_MARKERS,
     { lat: issPos.lat, lng: issPos.lng, label: 'ISS 🛸', color: '#38D1F0', type: 'iss' },
@@ -42,6 +79,7 @@ function GlobeInner({ width, height }: { width: number; height: number }) {
   return (
     <div style={{ position: 'relative', borderRadius: '1rem', overflow: 'hidden', width, height }}>
       <Globe
+        ref={globeRef}
         globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
         bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
         backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
@@ -54,10 +92,35 @@ function GlobeInner({ width, height }: { width: number; height: number }) {
         pointAltitude={0.02}
         pointRadius={(d: object) => (d as MarkerType).type === 'iss' ? 0.9 : 0.55}
         pointLabel="label"
-        onPointClick={(point: object) => setSelected(point as MarkerType)}
-        onGlobeClick={({ lat, lng }) => {
-          setSelected({ lat, lng, label: `Coordinates: ${lat.toFixed(2)}°, ${lng.toFixed(2)}°`, color: '#A78BFA' });
+        onPointClick={(point: object) => {
+          const pt = point as MarkerType;
+          setSelected(pt);
+          globeRef.current?.pointOfView({ lat: pt.lat, lng: pt.lng, altitude: 1.8 }, 1200);
         }}
+        onGlobeClick={({ lat, lng }) => {
+          const newSel = { lat, lng, label: `Coordinates: ${lat.toFixed(2)}°, ${lng.toFixed(2)}°`, color: '#A78BFA' };
+          setSelected(newSel);
+          globeRef.current?.pointOfView({ lat, lng, altitude: 1.8 }, 1200);
+        }}
+        ringsData={selected ? [selected] : []}
+        ringColor={() => '#38D1F0'}
+        ringMaxRadius={8}
+        ringPropagationSpeed={3}
+        ringRepeatPeriod={800}
+        pathsData={issPath}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pathPoints={(d: any) => d}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pathPointLat={(p: any) => p[1]}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pathPointLng={(p: any) => p[0]}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pathPointAlt={(p: any) => p[2]}
+        pathColor={() => 'rgba(56, 209, 240, 0.7)'}
+        pathStroke={2.0}
+        pathDashLength={0.15}
+        pathDashGap={0.04}
+        pathDashAnimateTime={8000}
         width={width}
         height={height}
         enablePointerInteraction

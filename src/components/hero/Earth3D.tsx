@@ -188,6 +188,7 @@ const AtmosphereShader = {
 };
 
 function AtmosphereGlow({ color = '#38BDF8', size = 2.62, coefficient = 0.30, power = 7.0 }) {
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
   const uniforms = useMemo(() => ({
     glowColor: { value: new THREE.Color(color) },
     coefficient: { value: coefficient },
@@ -195,10 +196,19 @@ function AtmosphereGlow({ color = '#38BDF8', size = 2.62, coefficient = 0.30, po
     sunPosition: { value: SUN_POSITION }
   }), [color, coefficient, power]);
 
+  useFrame((state) => {
+    if (materialRef.current) {
+      const time = state.clock.getElapsedTime();
+      const cycle = Math.sin(time * 0.8) * 0.05 + 1.0;
+      materialRef.current.uniforms.coefficient.value = coefficient * cycle;
+    }
+  });
+
   return (
     <mesh>
       <sphereGeometry args={[size, 64, 64]} />
       <shaderMaterial
+        ref={materialRef}
         vertexShader={AtmosphereShader.vertexShader}
         fragmentShader={AtmosphereShader.fragmentShader}
         uniforms={uniforms}
