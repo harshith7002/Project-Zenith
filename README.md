@@ -22,6 +22,83 @@
 
 ---
 
+## 🗺️ System Architecture & Data Flow
+
+GitHub natively renders the Mermaid diagrams below to visualize how telemetry flows and synchronizes in Project Zenith.
+
+### 1. Application Component Architecture
+The following diagram illustrates how layout, state channels, WebGL rendering, and responsive widgets interface with each other:
+
+```mermaid
+graph TD
+  subgraph AppLayout [App Layout & Navigation]
+    Header[Sticky Navigation Header]
+    page[Main page.tsx]
+  end
+
+  subgraph WebGL [WebGL 3D Core - Earth3D]
+    Globe[Custom Shaded 3D Earth]
+    Stars[Shader Twinkling Starfield]
+    Atmosphere[BackSide Fresnel Halo]
+    Breathing[Dolly Drift & Inertia]
+  end
+
+  subgraph StateSync [Coordinate Dispatcher]
+    GlobeView[Interactive 3D Globe]
+    EventChannel((Custom Event: zenith-coordinate-change))
+    Dashboard[Mission Control Dashboard]
+  end
+
+  subgraph DashboardWidgets [Telemetry Widgets]
+    ISSCard[ISS Tracker]
+    SkyCard[Sky Quality Score]
+    VisibleCard[Visible Sky Objects]
+    RadarCard[Polar Satellite Radar]
+    AICard[AI Space Guide]
+    PredictorCard[Cosmic Predictor]
+  end
+
+  page --> Header
+  page --> WebGL
+  page --> GlobeView
+  GlobeView -- User Click --> EventChannel
+  EventChannel --> Dashboard
+  Dashboard --> DashboardWidgets
+```
+
+### 2. Live API & Calculation Flow
+This diagram details the unauthenticated endpoints and client-side physics engines driving real-time data calculations:
+
+```mermaid
+graph LR
+  subgraph Client [Browser App]
+    UserCoords[Observer Coordinates: Lat, Lng, Time]
+    DataEngine[Calculations & Rendering Engines]
+  end
+
+  subgraph Sources [Live Telemetry API Endpoints]
+    ISSAPI[api.wheretheiss.at]
+    MeteoAPI[api.open-meteo.com]
+    CelesTrak[celestrak.org TLE Query]
+  end
+
+  subgraph LocalEngines [Local Physics Propagation]
+    AstEngine[astronomy-engine npm]
+    SatJS[satellite.js SGP4]
+  end
+
+  ISSAPI -- "HTTP GET (Every 5s)" --> Client
+  MeteoAPI -- "HTTP GET (Coordinate change)" --> Client
+  CelesTrak -- "HTTP GET (Initial Load / Fallbacks)" --> Client
+
+  UserCoords --> LocalEngines
+  LocalEngines --> DataEngine
+  AstEngine -- "Moon Phase, Planet Alt/Az" --> DataEngine
+  SatJS -- "SGP4 Look Angles & Orbital Lat/Lng" --> DataEngine
+```
+
+---
+
 ## ⚙️ Installation and Setup Instructions
 
 This section outlines how to install and run the Project Zenith codebase locally on your machine.
@@ -126,7 +203,7 @@ External libraries, frameworks, and tools used to build Project Zenith:
 ### Animations & Inertial Motion
 * **framer-motion** (`^12.40.0`): Declarative animation engine driving the scroll-linked timeline fills, card reveals, and UI fades.
 * **lenis** & **@studio-freight/lenis** (`^1.3.23`): Cinematic smooth-scrolling integration.
-* **gsap** (`^3.15.0`): Timeline sequencing engine.
+* **gsap** (`^3.15.0`): Simple animation triggers.
 
 ### Icons & Styling
 * **lucide-react** (`^0.470.0`): Clean SVGs for UI telemetry indicators.
