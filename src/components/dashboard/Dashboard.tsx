@@ -1200,6 +1200,7 @@ export default function Dashboard() {
 
   const [issData, setIssData] = useState<ISSData | null>(null);
   const [lastUpdated, setLastUpdated] = useState('');
+  const weatherCache = useRef<{ lat: number; lng: number; cloud: number; humidity: number; timestamp: number } | null>(null);
   const [satellites, setSatellites] = useState(FALLBACK_TLE_DATA);
   const [visibleSatsList, setVisibleSatsList] = useState<VisibleSatellite[]>([]);
   const [issNextPass, setIssNextPass] = useState<ISSPass | null>(null);
@@ -1257,22 +1258,28 @@ export default function Dashboard() {
 
   // Geolocation trigger on demand
   const handleUseMyLocation = () => {
+    setToastMessage('📡 Detecting your location...');
     if (typeof window !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
           const label = `My Location (${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`;
+          
+          setToastMessage(`🌍 Updating observation point...`);
           setObserverCoords({ lat: latitude, lng: longitude, label });
-          setToastMessage(`Now showing the sky above ${label}`);
           
           window.dispatchEvent(new CustomEvent('zenith-coordinate-change', {
             detail: { lat: latitude, lng: longitude, label }
           }));
+
+          setTimeout(() => {
+            setToastMessage(`✅ Mission Control synchronized`);
+          }, 800);
         },
         () => {
           setToastMessage(`Location permission denied. Continuing with the default observation point.`);
         },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 86400000 }
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
       );
     } else {
       setToastMessage(`Geolocation is not supported by your browser.`);
@@ -1376,6 +1383,7 @@ export default function Dashboard() {
 
   // 4. Propagate all satellites in real-time
   useEffect(() => {
+    let active = true;
     const propagateAll = () => {
       const date = new Date();
       const visibleSats: VisibleSatellite[] = [];
@@ -1399,21 +1407,27 @@ export default function Dashboard() {
         }
       });
 
-      // Update ISS next pass
-      const issTLE = satellites.find(s => s.noradId === 25544);
-      if (issTLE) {
-        const pass = predictNextISSPass(observerCoords.lat, observerCoords.lng, issTLE.line1, issTLE.line2);
-        if (pass) {
-          setIssNextPass(pass);
-        }
-      }
-
       setVisibleSatsList(visibleSats);
+
+      // Defer the heavy ISS pass prediction calculation to keep coordinate updates responsive
+      setTimeout(() => {
+        if (!active) return;
+        const issTLE = satellites.find(s => s.noradId === 25544);
+        if (issTLE) {
+          const pass = predictNextISSPass(observerCoords.lat, observerCoords.lng, issTLE.line1, issTLE.line2);
+          if (pass) {
+            setIssNextPass(pass);
+          }
+        }
+      }, 150);
     };
 
     propagateAll();
     const interval = setInterval(propagateAll, 4000); // propagate every 4 seconds to conserve CPU
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [satellites, observerCoords]);
 
   // 5. Update countdown timer to next ISS pass
@@ -1452,6 +1466,18 @@ export default function Dashboard() {
   useEffect(() => {
     let active = true;
     const fetchWeather = async () => {
+      // Check cache (within ~10 km / 0.09 degrees and less than 10 minutes old)
+      if (
+        weatherCache.current &&
+        Math.abs(weatherCache.current.lat - observerCoords.lat) < 0.09 &&
+        Math.abs(weatherCache.current.lng - observerCoords.lng) < 0.09 &&
+        Date.now() - weatherCache.current.timestamp < 600000
+      ) {
+        setCloudCover(weatherCache.current.cloud);
+        setHumidity(weatherCache.current.humidity);
+        return;
+      }
+
       try {
         const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${observerCoords.lat}&longitude=${observerCoords.lng}&current=cloud_cover,relative_humidity_2m`);
         if (!active) return;
@@ -1460,6 +1486,15 @@ export default function Dashboard() {
           if (data.current) {
             setCloudCover(data.current.cloud_cover);
             setHumidity(data.current.relative_humidity_2m);
+            
+            // Update cache
+            weatherCache.current = {
+              lat: observerCoords.lat,
+              lng: observerCoords.lng,
+              cloud: data.current.cloud_cover,
+              humidity: data.current.relative_humidity_2m,
+              timestamp: Date.now()
+            };
           }
         }
       } catch {
